@@ -2847,6 +2847,9 @@ function teleportTo(target)
             local TP_Speed = tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250
             if PortalTravel and getgenv().PortalCTraveling then TP_Speed = 1 end
             alignPosition.MaxVelocity = TP_Speed
+            if getgenv().PortalCTraveling then
+                alignPosition.MaxVelocity = 1
+            end
             alignPosition.Enabled = true
 
             if dist > 60 then
@@ -2855,7 +2858,7 @@ function teleportTo(target)
                 
                 if hrp.Position.Y < baseTargetPos.Y - 10 then
                     targetAttachment.WorldPosition = Vector3.new(hrp.Position.X, baseTargetPos.Y, hrp.Position.Z)
-                    alignPosition.MaxVelocity = 200 -- Y height distance tween
+                    alignPosition.MaxVelocity = (getgenv().PortalCTraveling and 1 or 200) -- Portal C travel must stay at speed 1
                     
                     local flatAngle = CFrame.Angles(0, math.atan2(hrp.CFrame.LookVector.X, hrp.CFrame.LookVector.Z), 0)
                     if bg then
@@ -3060,7 +3063,7 @@ local function flyToSkySafety(targetY)
         alignPos.Attachment0 = rootAtt
         alignPos.Attachment1 = targetAtt
         alignPos.MaxForce = 9e99
-        alignPos.MaxVelocity = tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250
+        alignPos.MaxVelocity = (getgenv().PortalCTraveling and 1 or (tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250))
         alignPos.Responsiveness = 200
         alignPos.ApplyAtCenterOfMass = true
         alignPos.Parent = hrp
