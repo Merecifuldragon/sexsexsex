@@ -2838,13 +2838,14 @@ function teleportTo(target)
                 alignPosition.Attachment0 = rootAttachment
                 alignPosition.Attachment1 = targetAttachment
                 alignPosition.MaxForce = 9e99
-                alignPosition.MaxVelocity = tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250
+                alignPosition.MaxVelocity = (PortalTravel and PortalTravel.Locked) and 12 or (tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250)
                 alignPosition.Responsiveness = 200
                 alignPosition.ApplyAtCenterOfMass = true
                 alignPosition.Parent = hrp
             end
 
             local TP_Speed = tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250
+            if PortalTravel and PortalTravel.Locked then TP_Speed = 12 end
             alignPosition.MaxVelocity = TP_Speed
             alignPosition.Enabled = true
 
@@ -3845,6 +3846,23 @@ local function portalFireButton(button)
     return false
 end
 
+local function portalPressC()
+    local vim = game:GetService("VirtualInputManager")
+    if type(keypress) == "function" then
+        local ok = pcall(keypress, 0x43)
+        if ok then
+            task.wait(0.08)
+            if type(keyrelease) == "function" then pcall(keyrelease, 0x43) end
+            return
+        end
+    end
+    pcall(function()
+        vim:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+        task.wait(0.08)
+        vim:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+    end)
+end
+
 local function portalCTravel(destination, destinationPos)
     local character = LocalPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -3853,7 +3871,10 @@ local function portalCTravel(destination, destinationPos)
 
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     local tool = character:FindFirstChild("Portal-Portal") or (backpack and backpack:FindFirstChild("Portal-Portal"))
-    if not tool then return false end
+    if not tool then
+        warn("[Portal C] Portal fruit not found")
+        return false
+    end
 
     PortalTravel.Locked = true
     PortalTravel.Destination = destination
@@ -3861,106 +3882,73 @@ local function portalCTravel(destination, destinationPos)
     PortalTravel.Started = tick()
     PortalTravel.Token = PortalTravel.Token + 1
     local myToken = PortalTravel.Token
-    local holdCFrame = hrp.CFrame
 
     if tool.Parent ~= character then
         pcall(function() humanoid:EquipTool(tool) end)
-        task.wait(0.15)
+        task.wait(0.2)
     end
 
-    -- Hold position while the Gateway takes its 3-4 seconds to appear.
-    local holdUntil = tick() + 4.5
-    while tick() < holdUntil and PortalTravel.Locked and myToken == PortalTravel.Token do
-        character = LocalPlayer.Character
-        hrp = character and character:FindFirstChild("HumanoidRootPart")
-        if not hrp then break end
-        hrp.CFrame = holdCFrame
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        task.wait()
-    end
+    getgenv().PortalCWaiting = true
+    portalPressC()
 
-    if not PortalTravel.Locked or myToken ~= PortalTravel.Token then return false end
-
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    local main = pg and pg:FindFirstChild("Main")
-    local gateway = main and main:FindFirstChild("Gateway")
-
-    -- C can take longer than 3 seconds on a busy client.
-    local deadline = tick() + 4
-    while (not gateway or not gateway.Visible) and tick() < deadline do
-        character = LocalPlayer.Character
-        hrp = character and character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.CFrame = holdCFrame
-            hrp.AssemblyLinearVelocity = Vector3.zero
-        end
-        task.wait(0.05)
+    local pg, main, gateway
+    local deadline = tick() + 8
+    while tick() < deadline and PortalTravel.Locked and myToken == PortalTravel.Token do
         pg = LocalPlayer:FindFirstChild("PlayerGui")
         main = pg and pg:FindFirstChild("Main")
         gateway = main and main:FindFirstChild("Gateway")
+        if gateway and gateway.Visible then break end
+        task.wait(0.1)
     end
 
     if not gateway or not gateway.Visible then
+        warn("[Portal C] Gateway did not appear")
         PortalTravel.Locked = false
+        getgenv().PortalCWaiting = false
         return false
     end
 
     local clicked = false
-    deadline = tick() + 3
-    while not clicked and tick() < deadline do
+    deadline = tick() + 5
+    while not clicked and tick() < deadline and PortalTravel.Locked and myToken == PortalTravel.Token do
         local button = portalGetButton(destination)
         if button then
             clicked = portalFireButton(button)
             if clicked then break end
         end
-        character = LocalPlayer.Character
-        hrp = character and character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.CFrame = holdCFrame
-            hrp.AssemblyLinearVelocity = Vector3.zero
-        end
-        task.wait(0.05)
+        task.wait(0.1)
     end
 
     if not clicked then
+        warn("[Portal C] Could not select destination: ", destination)
         PortalTravel.Locked = false
+        getgenv().PortalCWaiting = false
         return false
     end
 
-    -- Keep Auto Bounty movement disabled until we have actually reached
-    -- the destination island. Do NOT resume immediately after clicking.
+    print("[Portal C] Selected: ", destination)
+    getgenv().PortalCWaiting = false
     getgenv().PortalCTraveling = true
-    local arrivalDeadline = tick() + 15
 
+    local arrivalDeadline = tick() + 30
     while PortalTravel.Locked and myToken == PortalTravel.Token do
-        character = LocalPlayer.Character
-        hrp = character and character:FindFirstChild("HumanoidRootPart")
-        if not hrp then break end
-
-        local distance = (hrp.Position - destinationPos).Magnitude
-
-        -- Portal teleport can produce a character reset/replacement.
-        -- Once we're near the island center, normal Auto Bounty movement resumes.
-        if distance <= 2200 then
-            break
-        end
-
-        -- Never let the normal target tween start while Portal C is pending.
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root and (root.Position - destinationPos).Magnitude <= 2500 then break end
         if tick() > arrivalDeadline then
-            -- Give the server/client another short grace period instead of
-            -- instantly resuming toward the target.
-            arrivalDeadline = tick() + 5
+            warn("[Portal C] Arrival timeout; retrying C without character reset")
+            arrivalDeadline = tick() + 20
+            portalPressC()
         end
-
-        task.wait(0.1)
+        task.wait(0.2)
     end
 
     if myToken == PortalTravel.Token then
         PortalTravel.Locked = false
+        getgenv().PortalCWaiting = false
         getgenv().PortalCTraveling = false
         getgenv().PortalCReady = true
     end
-
     return true
 end
 
@@ -4000,10 +3988,7 @@ getgenv().PortalCToTargetIsland = PortalCToTargetIsland
 getgenv().PortalCTraveling = false
 
 local function SmartTeleport()
-    -- Portal C owns movement while its Gateway is opening/teleporting.
-    if PortalTravel and PortalTravel.Locked then
-        return
-    end
+    -- Portal C keeps normal movement alive, but at a very slow speed.
     local safeConfig = getgenv().Config and getgenv().Config["SafeCoolDown"]
     if type(safeConfig) == "table" and safeConfig["Enabled"] then
         local targetCFrame = getTargetCFrame(currentTarget)
@@ -4075,10 +4060,6 @@ local function startRandom()
                 -- PortalTravel lock suppress normal tweening until arrival.
                 if not PortalTravel.Locked then
                     PortalCToTargetIsland()
-                end
-                if PortalTravel.Locked then
-                    task.wait(0.1)
-                    continue
                 end
                 SmartTeleport(currentTarget)
                  
@@ -4168,10 +4149,6 @@ local function startRandom()
                         if not running or not checkCurrentTarget() then break end
                         if not PortalTravel.Locked then
                             PortalCToTargetIsland()
-                        end
-                        if PortalTravel.Locked then
-                            task.wait(0.1)
-                            continue
                         end
                         SmartTeleport(currentTarget) 
                         task.wait(CONFIG.SkimDelay) 
