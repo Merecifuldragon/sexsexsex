@@ -3980,8 +3980,18 @@ local function PortalCToTargetIsland()
         return false
     end
 
+    -- Lock BEFORE spawning the Portal routine so the movement loop cannot
+    -- start a normal long-distance tween during the 3-4 second Gateway delay.
+    PortalTravel.Locked = true
+    PortalTravel.Destination = destination
+    PortalTravel.DestinationPos = destinationPos
+
     task.spawn(function()
-        portalCTravel(destination, destinationPos)
+        local ok = portalCTravel(destination, destinationPos)
+        if not ok then
+            PortalTravel.Locked = false
+            getgenv().PortalCTraveling = false
+        end
     end)
     return true
 end
@@ -5823,18 +5833,12 @@ task.spawn(function()
                     lastCheckPos = nil
                     lastMoveTick = 0
 
-                    if not risk() then
-                        if myChar and myChar:FindFirstChild("Humanoid") then
-                            myChar.Humanoid.Health = 0
-                        end
-                    else
-                        if currentTarget then
-                            Blacklist[currentTarget.Name] = true
-                        end
-                        currentTarget = nil
-                        getgenv().CurrentTarget = nil
-                        getgenv().targ = nil
-                        pickNewTarget("stuck > 2.5s or tracer lost > 1s")
+                    -- NEVER reset/kill the character as a movement recovery.
+                    -- If the target is on another island, Portal C is the only
+                    -- cross-island recovery method. Otherwise keep the target and
+                    -- let the normal movement loop try again.
+                    if currentTarget and not PortalTravel.Locked then
+                        PortalCToTargetIsland()
                     end
                 end
             else
