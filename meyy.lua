@@ -33,8 +33,7 @@ while not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Hum
 end
 local placeId = game.PlaceId
 local worldMap = {[2753915549] = "World1",[85211729168715] = "World1",[4442272183] = "World2",[79091703265657] = "World2",[7449423635] = "World3",[100117331123089] = "World3"}
-getgenv().Config = getgenv().Config or {}
-sea = getgenv().Config["Select Sea"] or "Sea 1"
+sea = getgenv().Config["Select Sea"]
 if sea == "Sea 1" then
    if placeId == 4442272183 or placeId == 79091703265657 or placeId == 7449423635 or placeId == 100117331123089 then
    Services.ReplicatedStorage.Remotes.CommF_:InvokeServer("TravelMain")
@@ -3159,35 +3158,50 @@ local function hopServer()
                     end)
                     task.wait(1.5)
                 else
-                    notify("Hop System", "List empty, scanning directly...", 2) 
-                    for r = 1, 300 do 
+                    -- An empty SavedServers cache does NOT mean we should hop again.
+                    -- Wait for the background scanner / direct scan to actually find a candidate.
+                    notify("Hop System", "Server list empty, scanning for a valid server...", 2)
+                    local foundServer = false
+
+                    for r = 1, 300 do
                         if risk() then break end
 
-                        local success, servers = pcall(function() 
-                            return game.ReplicatedStorage.__ServerBrowser:InvokeServer(r) 
-                        end) 
-                        
-                        if success and servers then
+                        local success, servers = pcall(function()
+                            return game.ReplicatedStorage.__ServerBrowser:InvokeServer(r)
+                        end)
+
+                        if success and type(servers) == "table" then
                             for k, v in pairs(servers) do
-                                if k ~= game.JobId and v["Count"] > 10 then 
+                                if k ~= game.JobId and type(v) == "table" and tonumber(v["Count"]) and v["Count"] > 10 then
                                     local region = v["Region"] and string.lower(tostring(v["Region"])) or ""
-                                    if string.find(region, "singapore") then
-                                        local playerCount = v["Count"]
-                                        local serverBounty = v["Bounty"] or 0
+                                    if string.find(region, "singapore", 1, true) then
+                                        local playerCount = tonumber(v["Count"]) or 0
+                                        local serverBounty = tonumber(v["Bounty"]) or 0
                                         if serverBounty > (playerCount * 1500000) then
-                                            if risk() then break end
-                                            
-                                            notify("Hop System", "Found Singapore server! Teleporting...", 3) 
-                                            pcall(function()
-                                                game.ReplicatedStorage.__ServerBrowser:InvokeServer("teleport", k) 
+                                            foundServer = true
+                                            notify("Hop System", "Found Singapore server! Teleporting...", 3)
+                                            local teleported = pcall(function()
+                                                game.ReplicatedStorage.__ServerBrowser:InvokeServer("teleport", k)
                                             end)
-                                            task.wait(1.5)
+                                            if teleported then
+                                                task.wait(2)
+                                            end
+                                            break
                                         end
                                     end
                                 end
                             end
                         end
+
+                        if foundServer then break end
                         task.wait(0.1)
+                    end
+
+                    -- Do not recursively hop when no server was found.
+                    -- Keep this hop session alive and retry the scan after a short delay.
+                    if not foundServer then
+                        notify("Hop System", "No valid server found yet. Retrying scan...", 2)
+                        task.wait(3)
                     end
                 end
             end
