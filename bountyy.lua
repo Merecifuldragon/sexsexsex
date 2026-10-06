@@ -2838,14 +2838,14 @@ function teleportTo(target)
                 alignPosition.Attachment0 = rootAttachment
                 alignPosition.Attachment1 = targetAttachment
                 alignPosition.MaxForce = 9e99
-                alignPosition.MaxVelocity = (PortalTravel and PortalTravel.Locked) and 12 or (tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250)
+                alignPosition.MaxVelocity = (PortalTravel and getgenv().PortalCTraveling) and 1 or (tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250)
                 alignPosition.Responsiveness = 200
                 alignPosition.ApplyAtCenterOfMass = true
                 alignPosition.Parent = hrp
             end
 
             local TP_Speed = tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250
-            if PortalTravel and PortalTravel.Locked then TP_Speed = 12 end
+            if PortalTravel and getgenv().PortalCTraveling then TP_Speed = 1 end
             alignPosition.MaxVelocity = TP_Speed
             alignPosition.Enabled = true
 
@@ -3742,6 +3742,7 @@ local PortalTravel = {
     Token = 0,
 }
 
+
 local PORTAL_ISLANDS = {
     [1] = {
         {"Starter Island", Vector3.new(1038,115,1290)},
@@ -3806,43 +3807,93 @@ local function portalGetTargetIsland(target)
     return best and best[1], best and best[2]
 end
 
+local function portalNormalizeName(value)
+    value = tostring(value or ""):lower()
+    value = value:gsub("[%c]", " ")
+    value = value:gsub("[^%w%s]", " ")
+    value = value:gsub("%s+", " ")
+    return value:match("^%s*(.-)%s*$") or ""
+end
+
 local function portalGetButton(destination)
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    local main = pg and pg:FindFirstChild("Main")
-    local gateway = main and main:FindFirstChild("Gateway")
-    local content = gateway and gateway:FindFirstChild("MainContent")
-    local scrolling = content and content:FindFirstChild("ScrollingFrame")
-    if not scrolling then return nil end
+    if not pg then return nil end
 
-    local exact = scrolling:FindFirstChild(tostring(destination))
-    if exact and exact:IsA("GuiButton") then return exact end
+    -- Gateway can be nested differently depending on the current Blox Fruits UI.
+    local gateway = pg:FindFirstChild("Gateway", true)
+    if not gateway then
+        local main = pg:FindFirstChild("Main", true)
+        gateway = main and main:FindFirstChild("Gateway", true)
+    end
+    if not gateway then return nil end
 
-    local wanted = tostring(destination):lower()
-    for _, obj in ipairs(scrolling:GetDescendants()) do
+    local wanted = portalNormalizeName(destination)
+    if wanted == "" then return nil end
+
+    local exactName, exactText, partial = nil, nil, nil
+
+    for _, obj in ipairs(gateway:GetDescendants()) do
         if obj:IsA("GuiButton") then
-            local n = obj.Name:lower()
-            if n == wanted or n:find(wanted, 1, true) or wanted:find(n, 1, true) then
-                return obj
+            local name = portalNormalizeName(obj.Name)
+            local text = portalNormalizeName(obj.Text)
+
+            -- Exact matches have priority.
+            if name == wanted then
+                exactName = obj
+                break
+            end
+            if text == wanted then
+                exactText = obj
+            end
+
+            -- Handle names such as "KingdomOfRose", "Kingdom of Rose Button",
+            -- or destination labels with extra UI text.
+            if not partial then
+                if (name ~= "" and (name:find(wanted, 1, true) or wanted:find(name, 1, true)))
+                    or (text ~= "" and (text:find(wanted, 1, true) or wanted:find(text, 1, true))) then
+                    partial = obj
+                end
             end
         end
     end
-    return nil
+
+    return exactName or exactText or partial
 end
 
 local function portalFireButton(button)
     if not button then return false end
-    if type(getconnections) == "function" then
-        for _, c in ipairs(getconnections(button.MouseButton1Click)) do
-            if c.Function then
-                local ok = pcall(c.Function)
-                if ok then return true end
-            end
+
+    -- The actual Portal Gateway uses GuiButtons, so Activate() is the
+    -- least executor-dependent way to select the destination.
+    local activated = false
+    pcall(function()
+        if button:IsA("GuiButton") then
+            button:Activate()
+            activated = true
         end
+    end)
+    if activated then
+        task.wait(0.15)
+        return true
     end
+
+    if type(getconnections) == "function" then
+        local ok = pcall(function()
+            for _, c in ipairs(getconnections(button.MouseButton1Click)) do
+                if c.Function then
+                    c.Function()
+                    return true
+                end
+            end
+        end)
+        if ok then return true end
+    end
+
     if type(firesignal) == "function" then
         local ok = pcall(firesignal, button.MouseButton1Click)
         if ok then return true end
     end
+
     return false
 end
 
@@ -3861,6 +3912,17 @@ local function portalPressC()
         task.wait(0.08)
         vim:SendKeyEvent(false, Enum.KeyCode.C, false, game)
     end)
+end
+
+local function portalFindGateway()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+
+    local gateway = pg:FindFirstChild("Gateway", true)
+    if gateway then return gateway end
+
+    local main = pg:FindFirstChild("Main", true)
+    return main and main:FindFirstChild("Gateway", true) or nil
 end
 
 local function portalCTravel(destination, destinationPos)
@@ -3894,17 +3956,16 @@ local function portalCTravel(destination, destinationPos)
     local pg, main, gateway
     local deadline = tick() + 8
     while tick() < deadline and PortalTravel.Locked and myToken == PortalTravel.Token do
-        pg = LocalPlayer:FindFirstChild("PlayerGui")
-        main = pg and pg:FindFirstChild("Main")
-        gateway = main and main:FindFirstChild("Gateway")
-        if gateway and gateway.Visible then break end
+        gateway = portalFindGateway()
+        if gateway and (gateway.Visible == nil or gateway.Visible) then break end
         task.wait(0.1)
     end
 
-    if not gateway or not gateway.Visible then
+    if not gateway then
         warn("[Portal C] Gateway did not appear")
         PortalTravel.Locked = false
         getgenv().PortalCWaiting = false
+        getgenv().PortalCTraveling = false
         return false
     end
 
@@ -3923,6 +3984,7 @@ local function portalCTravel(destination, destinationPos)
         warn("[Portal C] Could not select destination: ", destination)
         PortalTravel.Locked = false
         getgenv().PortalCWaiting = false
+        getgenv().PortalCTraveling = false
         return false
     end
 
