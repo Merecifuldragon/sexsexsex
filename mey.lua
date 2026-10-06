@@ -1,7 +1,7 @@
 --[[
-    MEYY HUB - AUTO BOUNTY - SCRIPT COMPLETO DESCIFRADO (100% AUTOCONTENIDO)
+    Merciful HUB - AUTO BOUNTY - SCRIPT COMPLETO DESCIFRADO (100% AUTOCONTENIDO)
     ------------------------------------------------------------------
-    - Extraido del servidor de meyyhub con tu key (naa-21ETAU5C) y tu HWID.
+    - Extraido del servidor de Mercifulhub con tu key (naa-21ETAU5C) y tu HWID.
     - Sin autenticacion, sin anti-tamper, sin checks de key: codigo puro.
     - SIN DEPENDENCIAS EXTERNAS: los modulos que antes se descargaban de
       pastefy estan incrustados dentro (buscar "[INLINE" para verlos).
@@ -2437,9 +2437,9 @@ end)
 ---------
 local function CreateNotifyGui()
     local pGui = player:WaitForChild("PlayerGui")
-    if pGui:FindFirstChild("MeyyCloudNotify") then return pGui:FindFirstChild("MeyyCloudNotify") end
+    if pGui:FindFirstChild("MercifulCloudNotify") then return pGui:FindFirstChild("MercifulCloudNotify") end
     local sg = Instance.new("ScreenGui")
-    sg.Name = "MeyyCloudNotify"
+    sg.Name = "MercifulCloudNotify"
     sg.ResetOnSpawn = false
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     sg.Parent = Services.CoreGui or pGui
@@ -2813,17 +2813,17 @@ function teleportTo(target)
             local currentMyPos = hrp.Position
             local needReset = false
 
-            if not _G.Meyy_LastMovePos then
-                _G.Meyy_LastMovePos = currentMyPos
-                _G.Meyy_LastMoveTick = tick()
+            if not _G.Merciful_LastMovePos then
+                _G.Merciful_LastMovePos = currentMyPos
+                _G.Merciful_LastMoveTick = tick()
             else
-                if (currentMyPos - _G.Meyy_LastMovePos).Magnitude > 3 then
-                    _G.Meyy_LastMovePos = currentMyPos
-                    _G.Meyy_LastMoveTick = tick()
-                elseif dist > 10 and tick() - _G.Meyy_LastMoveTick >= 2.5 then
+                if (currentMyPos - _G.Merciful_LastMovePos).Magnitude > 3 then
+                    _G.Merciful_LastMovePos = currentMyPos
+                    _G.Merciful_LastMoveTick = tick()
+                elseif dist > 10 and tick() - _G.Merciful_LastMoveTick >= 2.5 then
                     needReset = true
-                    _G.Meyy_LastMovePos = currentMyPos
-                    _G.Meyy_LastMoveTick = tick()
+                    _G.Merciful_LastMovePos = currentMyPos
+                    _G.Merciful_LastMoveTick = tick()
                 end
             end
 
@@ -2844,15 +2844,15 @@ function teleportTo(target)
                 end
 
                 targetAttachment = Instance.new("Attachment")
-                targetAttachment.Name = "MeyyTargetAtt"
+                targetAttachment.Name = "MercifulTargetAtt"
                 targetAttachment.Parent = workspace.Terrain
 
                 rootAttachment = Instance.new("Attachment")
-                rootAttachment.Name = "MeyyRootAtt"
+                rootAttachment.Name = "MercifulRootAtt"
                 rootAttachment.Parent = hrp
 
                 alignPosition = Instance.new("AlignPosition")
-                alignPosition.Name = "MeyyAlign"
+                alignPosition.Name = "MercifulAlign"
                 alignPosition.Mode = Enum.PositionAlignmentMode.TwoAttachment
                 alignPosition.Attachment0 = rootAttachment
                 alignPosition.Attachment1 = targetAttachment
@@ -2868,7 +2868,7 @@ function teleportTo(target)
             alignPosition.Enabled = true
 
             if dist > 60 then
-                _G.Meyy_LockTween = false
+                _G.Merciful_LockTween = false
                 if currentTween then currentTween:Cancel(); currentTween = nil end
                 
                 if hrp.Position.Y < baseTargetPos.Y - 10 then
@@ -2891,7 +2891,7 @@ function teleportTo(target)
                     end
                 end
             else
-                _G.Meyy_LockTween = true
+                _G.Merciful_LockTween = true
                 if currentTween then currentTween:Cancel(); currentTween = nil end
                 
                 local offsets = getOffsets()
@@ -4057,7 +4057,7 @@ task.spawn(function()
     end
 end)
 
-local fileName = "hitbox.meyy"
+local fileName = "hitbox.Merciful"
 local baseHitboxSize = 0
 
 -------------------------------------------------------------------------
@@ -4428,7 +4428,7 @@ end
 ---------
 
 ---------
-local SAVE_FOLDER = "MeyyHub_DataBounty"
+local SAVE_FOLDER = "MercifulHub_DataBounty"
 local SAVE_FILE = SAVE_FOLDER .. "/TotalBounty_" .. game.Players.LocalPlayer.Name .. ".json"
 if not isfolder(SAVE_FOLDER) then makefolder(SAVE_FOLDER) end
 
@@ -4675,7 +4675,7 @@ if not getgenv().Config.BlackScreen then
     }
 
     local BountyGui = Instance.new("ScreenGui")
-    BountyGui.Name = "Meyy_DynamicBounty_" .. math.random(1000, 9999)
+    BountyGui.Name = "Merciful_DynamicBounty_" .. math.random(1000, 9999)
     BountyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     BountyGui.ResetOnSpawn = false
 
