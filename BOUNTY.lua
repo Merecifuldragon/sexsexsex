@@ -2810,29 +2810,10 @@ function teleportTo(target)
                 bg.Parent = hrp
             end
 
-            local currentMyPos = hrp.Position
-            local needReset = false
-
-            if not _G.Meyy_LastMovePos then
-                _G.Meyy_LastMovePos = currentMyPos
-                _G.Meyy_LastMoveTick = tick()
-            else
-                if (currentMyPos - _G.Meyy_LastMovePos).Magnitude > 3 then
-                    _G.Meyy_LastMovePos = currentMyPos
-                    _G.Meyy_LastMoveTick = tick()
-                elseif dist > 10 and tick() - _G.Meyy_LastMoveTick >= 2.5 then
-                    needReset = true
-                    _G.Meyy_LastMovePos = currentMyPos
-                    _G.Meyy_LastMoveTick = tick()
-                end
-            end
-
-            if tick() - (lastAlignRefresh or 0) >= 7 then
-                needReset = true
-                lastAlignRefresh = tick()
-            end
-
-            if needReset or not alignPosition or alignPosition.Parent ~= hrp then
+            -- Reset-teleport/stuck-recovery has been completely removed.
+            -- Keep the existing AlignPosition instead of periodically destroying
+            -- and recreating it or forcing a recovery teleport.
+            if not alignPosition or alignPosition.Parent ~= hrp then
                 if alignPosition then alignPosition:Destroy(); alignPosition = nil end
                 if targetAttachment then targetAttachment:Destroy(); targetAttachment = nil end
                 if rootAttachment then rootAttachment:Destroy(); rootAttachment = nil end
