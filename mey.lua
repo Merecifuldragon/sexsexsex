@@ -2933,7 +2933,7 @@ end
 ---------
 ---------
 ---------
-local fixedBountyMsg = "Meyy Hub Earned {Bounty} Bounty From Target {Target}"
+local fixedBountyMsg = "MercifulHub Hub Earned {Bounty} Bounty From Target {Target}"
 
 local function sendKillMessage(bounty, target)
     if not getgenv().Config["Message"] or not getgenv().Config["Message"]["Enabled"] then return end
@@ -4252,7 +4252,7 @@ if getgenv().Config.BlackScreen then
     TextLabel4.Position = UDim2.new(0.350045, 0, 0.0638366, 0)
     TextLabel4.Size = UDim2.new(0, 571, 0, 102)
     TextLabel4.BackgroundTransparency = 1
-    TextLabel4.Text = "Meyy Hub - Auto Bounty"
+    TextLabel4.Text = "Merciful Hub - Auto Bounty"
     TextLabel4.TextColor3 = Color3.new(1, 1, 1)
     TextLabel4.TextSize = 35
     TextLabel4.FontFace = Font.new("rbxasset://fonts/families/FredokaOne.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
