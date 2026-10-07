@@ -3621,7 +3621,7 @@ local function checkCurrentTarget()
         pickNewTarget("died"); return false
     end
     
-    if IsInstaKillEnabled() then
+    if Config and Config.InstaKill == true then
         local hrp = targetChar:FindFirstChild("HumanoidRootPart")
         if hrp then
             local mapFolder = workspace:FindFirstChild("Map")
