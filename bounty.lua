@@ -1,7 +1,8 @@
+````
 --[[
-    MEYY HUB - AUTO BOUNTY - SCRIPT COMPLETO DESCIFRADO (100% AUTOCONTENIDO)
+    Merciful Hub - Auto Bounty (100% AUTOCONTENIDO)
     ------------------------------------------------------------------
-    - Extraido del servidor de meyyhub con tu key (naa-21ETAU5C) y tu HWID.
+    - Extraido del servidor de Mercifulhub con tu key (naa-21ETAU5C) y tu HWID.
     - Sin autenticacion, sin anti-tamper, sin checks de key: codigo puro.
     - SIN DEPENDENCIAS EXTERNAS: los modulos que antes se descargaban de
       pastefy estan incrustados dentro (buscar "[INLINE" para verlos).
@@ -684,6 +685,10 @@ end)
 ---------
 
 local Config = {
+    -- ==================== Merciful Hub Config ====================
+    -- Toggle fruit M1 instant-kill behavior here.
+    InstaKill = true,
+
     AttackDistance = 65,
     AttackMobs = true,
     AttackPlayers = true,
@@ -693,6 +698,10 @@ local Config = {
     HitboxLimbs = {"RightLowerArm", "RightUpperArm", "LeftLowerArm", "LeftUpperArm", "RightHand", "LeftHand"},
     AutoClickEnabled = true
 }
+
+local function IsInstaKillEnabled()
+    return Config.InstaKill == true
+end
 
 local FastAttack = {}
 FastAttack.__index = FastAttack
@@ -1724,7 +1733,7 @@ if cfg and cfg["FruitM1"] == true then
     _G.G_FruitM1 = true
 end
 
-if cfg and cfg["FruitInstantKill"] == true then
+if IsInstaKillEnabled() then
     _G.G_VoidFruitM1 = true
 end
 _G.G_AttackMobs = true
@@ -2116,7 +2125,7 @@ function FruitM1.SetNormal(enabled)
                     local maxCombo = _G.G_VoidFruitM1 and FruitM1.MaxCombo(fruit) or (FruitM1.MaxCombo(fruit) - 1)
                     if maxCombo < 1 then maxCombo = 1 end
                     
-                    local isInstantKill = (getgenv().Config and getgenv().Config["FruitInstantKill"] == true) or (Config and Config["FruitInstantKill"] == true)
+                    local isInstantKill = IsInstaKillEnabled()
                     local targetCanDodge = checkTargetKen(currentTarget)
 
                     if isInstantKill and not targetCanDodge then
@@ -2237,8 +2246,19 @@ end
 end
 
 
-if Config and (Config["FruitInstantKill"] == true or Config["FruitM1"] == true) then
-    M1Fruit()
+-- Safe fruit-M1 bootstrap. A missing helper must never abort Auto Bounty.
+do
+    local enableFruitM1 = false
+    pcall(function()
+        enableFruitM1 = (type(IsInstaKillEnabled) == "function" and IsInstaKillEnabled() == true)
+            or (type(Config) == "table" and Config["FruitM1"] == true)
+    end)
+    if enableFruitM1 and type(M1Fruit) == "function" then
+        task.spawn(function()
+            local ok, err = pcall(M1Fruit)
+            if not ok then warn("[Merciful Hub] Fruit M1 disabled: " .. tostring(err)) end
+        end)
+    end
 end
 
 ---------
@@ -2437,9 +2457,9 @@ end)
 ---------
 local function CreateNotifyGui()
     local pGui = player:WaitForChild("PlayerGui")
-    if pGui:FindFirstChild("MeyyCloudNotify") then return pGui:FindFirstChild("MeyyCloudNotify") end
+    if pGui:FindFirstChild("MercifulCloudNotify") then return pGui:FindFirstChild("MercifulCloudNotify") end
     local sg = Instance.new("ScreenGui")
-    sg.Name = "MeyyCloudNotify"
+    sg.Name = "MercifulCloudNotify"
     sg.ResetOnSpawn = false
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     sg.Parent = Services.CoreGui or pGui
@@ -2810,10 +2830,29 @@ function teleportTo(target)
                 bg.Parent = hrp
             end
 
-            -- Reset-teleport/stuck-recovery has been completely removed.
-            -- Keep the existing AlignPosition instead of periodically destroying
-            -- and recreating it or forcing a recovery teleport.
-            if not alignPosition or alignPosition.Parent ~= hrp then
+            local currentMyPos = hrp.Position
+            local needReset = false
+
+            if not _G.Merciful_LastMovePos then
+                _G.Merciful_LastMovePos = currentMyPos
+                _G.Merciful_LastMoveTick = tick()
+            else
+                if (currentMyPos - _G.Merciful_LastMovePos).Magnitude > 3 then
+                    _G.Merciful_LastMovePos = currentMyPos
+                    _G.Merciful_LastMoveTick = tick()
+                elseif dist > 10 and tick() - _G.Merciful_LastMoveTick >= 2.5 then
+                    needReset = true
+                    _G.Merciful_LastMovePos = currentMyPos
+                    _G.Merciful_LastMoveTick = tick()
+                end
+            end
+
+            if tick() - (lastAlignRefresh or 0) >= 7 then
+                needReset = true
+                lastAlignRefresh = tick()
+            end
+
+            if needReset or not alignPosition or alignPosition.Parent ~= hrp then
                 if alignPosition then alignPosition:Destroy(); alignPosition = nil end
                 if targetAttachment then targetAttachment:Destroy(); targetAttachment = nil end
                 if rootAttachment then rootAttachment:Destroy(); rootAttachment = nil end
@@ -2825,40 +2864,36 @@ function teleportTo(target)
                 end
 
                 targetAttachment = Instance.new("Attachment")
-                targetAttachment.Name = "MeyyTargetAtt"
+                targetAttachment.Name = "MercifulTargetAtt"
                 targetAttachment.Parent = workspace.Terrain
 
                 rootAttachment = Instance.new("Attachment")
-                rootAttachment.Name = "MeyyRootAtt"
+                rootAttachment.Name = "MercifulRootAtt"
                 rootAttachment.Parent = hrp
 
                 alignPosition = Instance.new("AlignPosition")
-                alignPosition.Name = "MeyyAlign"
+                alignPosition.Name = "MercifulAlign"
                 alignPosition.Mode = Enum.PositionAlignmentMode.TwoAttachment
                 alignPosition.Attachment0 = rootAttachment
                 alignPosition.Attachment1 = targetAttachment
                 alignPosition.MaxForce = 9e99
-                alignPosition.MaxVelocity = (PortalTravel and getgenv().PortalCTraveling) and 1 or (tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250)
+                alignPosition.MaxVelocity = tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250
                 alignPosition.Responsiveness = 200
                 alignPosition.ApplyAtCenterOfMass = true
                 alignPosition.Parent = hrp
             end
 
             local TP_Speed = tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250
-            if PortalTravel and getgenv().PortalCTraveling then TP_Speed = 1 end
             alignPosition.MaxVelocity = TP_Speed
-            if getgenv().PortalCTraveling then
-                alignPosition.MaxVelocity = 1
-            end
             alignPosition.Enabled = true
 
             if dist > 60 then
-                _G.Meyy_LockTween = false
+                _G.Merciful_LockTween = false
                 if currentTween then currentTween:Cancel(); currentTween = nil end
                 
                 if hrp.Position.Y < baseTargetPos.Y - 10 then
                     targetAttachment.WorldPosition = Vector3.new(hrp.Position.X, baseTargetPos.Y, hrp.Position.Z)
-                    alignPosition.MaxVelocity = (getgenv().PortalCTraveling and 1 or 200) -- Portal C travel must stay at speed 1
+                    alignPosition.MaxVelocity = 200 -- Y height distance tween
                     
                     local flatAngle = CFrame.Angles(0, math.atan2(hrp.CFrame.LookVector.X, hrp.CFrame.LookVector.Z), 0)
                     if bg then
@@ -2876,7 +2911,7 @@ function teleportTo(target)
                     end
                 end
             else
-                _G.Meyy_LockTween = true
+                _G.Merciful_LockTween = true
                 if currentTween then currentTween:Cancel(); currentTween = nil end
                 
                 local offsets = getOffsets()
@@ -2918,7 +2953,7 @@ end
 ---------
 ---------
 ---------
-local fixedBountyMsg = "Meyy Hub Earned {Bounty} Bounty From Target {Target}"
+local fixedBountyMsg = "Merciful Hub Earned {Bounty} Bounty From Target {Target}"
 
 local function sendKillMessage(bounty, target)
     if not getgenv().Config["Message"] or not getgenv().Config["Message"]["Enabled"] then return end
@@ -3063,7 +3098,7 @@ local function flyToSkySafety(targetY)
         alignPos.Attachment0 = rootAtt
         alignPos.Attachment1 = targetAtt
         alignPos.MaxForce = 9e99
-        alignPos.MaxVelocity = (getgenv().PortalCTraveling and 1 or (tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250))
+        alignPos.MaxVelocity = tonumber(getgenv().Config and getgenv().Config["TweenSpeed"]) or 250
         alignPos.Responsiveness = 200
         alignPos.ApplyAtCenterOfMass = true
         alignPos.Parent = hrp
@@ -3098,26 +3133,25 @@ local function hopServer()
     isHopping = true 
 
     task.spawn(function()
-        if not getgenv().Config["Reset"] then 
-            notify("Hop System", "Moving to safety (300000 height)...", 5) 
-            
-            _G.DisableSpecialTP = true
-            flyToSkySafety(300000)
+        -- Always use the normal sky-safety route before hopping. The old Reset/character-reset bypass is removed.
+        notify("Hop System", "Moving to safety (300000 height)...", 5) 
+        
+        _G.DisableSpecialTP = true
+        flyToSkySafety(300000)
 
-            if risk() then
-                notify("Hop System", "Risk detected! Waiting to clear...", 5)
-                while risk() do
-                    pcall(function()
-                        local currentChar = LocalPlayer.Character
-                        local currentHrp = currentChar and currentChar:FindFirstChild("HumanoidRootPart")
-                        if currentHrp and currentHrp.Position.Y < 250000 then
-                            flyToSkySafety(300000)
-                        end
-                    end)
-                    task.wait(1)
-                end
-                notify("Hop System", "Risk cleared! Ready to hop...", 3)
+        if risk() then
+            notify("Hop System", "Risk detected! Waiting to clear...", 5)
+            while risk() do
+                pcall(function()
+                    local currentChar = LocalPlayer.Character
+                    local currentHrp = currentChar and currentChar:FindFirstChild("HumanoidRootPart")
+                    if currentHrp and currentHrp.Position.Y < 250000 then
+                        flyToSkySafety(300000)
+                    end
+                end)
+                task.wait(1)
             end
+            notify("Hop System", "Risk cleared! Ready to hop...", 3)
         end
 
         notify("Hop System", "Searching Singapore servers...", 5) 
@@ -3143,35 +3177,50 @@ local function hopServer()
                     end)
                     task.wait(1.5)
                 else
-                    notify("Hop System", "List empty, scanning directly...", 2) 
-                    for r = 1, 300 do 
+                    -- An empty SavedServers cache does NOT mean we should hop again.
+                    -- Wait for the background scanner / direct scan to actually find a candidate.
+                    notify("Hop System", "Server list empty, scanning for a valid server...", 2)
+                    local foundServer = false
+
+                    for r = 1, 300 do
                         if risk() then break end
 
-                        local success, servers = pcall(function() 
-                            return game.ReplicatedStorage.__ServerBrowser:InvokeServer(r) 
-                        end) 
-                        
-                        if success and servers then
+                        local success, servers = pcall(function()
+                            return game.ReplicatedStorage.__ServerBrowser:InvokeServer(r)
+                        end)
+
+                        if success and type(servers) == "table" then
                             for k, v in pairs(servers) do
-                                if k ~= game.JobId and v["Count"] > 10 then 
+                                if k ~= game.JobId and type(v) == "table" and tonumber(v["Count"]) and v["Count"] > 10 then
                                     local region = v["Region"] and string.lower(tostring(v["Region"])) or ""
-                                    if string.find(region, "singapore") then
-                                        local playerCount = v["Count"]
-                                        local serverBounty = v["Bounty"] or 0
+                                    if string.find(region, "singapore", 1, true) then
+                                        local playerCount = tonumber(v["Count"]) or 0
+                                        local serverBounty = tonumber(v["Bounty"]) or 0
                                         if serverBounty > (playerCount * 1500000) then
-                                            if risk() then break end
-                                            
-                                            notify("Hop System", "Found Singapore server! Teleporting...", 3) 
-                                            pcall(function()
-                                                game.ReplicatedStorage.__ServerBrowser:InvokeServer("teleport", k) 
+                                            foundServer = true
+                                            notify("Hop System", "Found Singapore server! Teleporting...", 3)
+                                            local teleported = pcall(function()
+                                                game.ReplicatedStorage.__ServerBrowser:InvokeServer("teleport", k)
                                             end)
-                                            task.wait(1.5)
+                                            if teleported then
+                                                task.wait(2)
+                                            end
+                                            break
                                         end
                                     end
                                 end
                             end
                         end
+
+                        if foundServer then break end
                         task.wait(0.1)
+                    end
+
+                    -- Do not recursively hop when no server was found.
+                    -- Keep this hop session alive and retry the scan after a short delay.
+                    if not foundServer then
+                        notify("Hop System", "No valid server found yet. Retrying scan...", 2)
+                        task.wait(3)
                     end
                 end
             end
@@ -3512,16 +3561,30 @@ local function pickNewTarget(reason)
 
     currentTarget = getRandomPlayer()
     switchTimer = 0
-    
     lastTargetHealth = 0
-    lastDamageTime = tick() 
-    
+    lastDamageTime = tick()
+
     if currentTarget then
         print(string.format("Target [%s] %s -> %s", reason, old, currentTarget.Name))
+        notify("Auto Bounty", "Target: " .. currentTarget.Name, 2)
     else
+        currentTarget = nil
         print("Waiting for valid targets...")
-        notify("Auto Bounty", "No targets left, hopping server...", 5)
-        hopServer()
+        notify("Auto Bounty", "No valid target found; rescanning...", 3)
+        task.delay(1, function()
+            if running and not currentTarget then
+                local retry = getRandomPlayer()
+                if retry then
+                    currentTarget = retry
+                    lastTargetHealth = 0
+                    lastDamageTime = tick()
+                    notify("Auto Bounty", "Target: " .. retry.Name, 2)
+                else
+                    notify("Auto Bounty", "No targets in this server, hopping...", 3)
+                    hopServer()
+                end
+            end
+        end)
     end
 end
 
@@ -3546,7 +3609,7 @@ local function checkCurrentTarget()
         pickNewTarget("died"); return false
     end
     
-    if Config and Config["FruitInstantKill"] == true then
+    if IsInstaKillEnabled() then
         local hrp = targetChar:FindFirstChild("HumanoidRootPart")
         if hrp then
             local mapFolder = workspace:FindFirstChild("Map")
@@ -3589,33 +3652,38 @@ local function RunFullScan()
             local isSameTeam = p.Team == LocalPlayer.Team
 
             if p ~= LocalPlayer and not (isMarine and isSameTeam) then
+                local targetChar = p.Character
+                local targetHum = targetChar and targetChar:FindFirstChild("Humanoid")
+                local targetHrp = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+
                 if Whitelist[p.Name] then
-                    local hum = char and char:FindFirstChild("Humanoid")
-                    if not char or not hum or hum.Health <= 0 then
+                    if not targetChar or not targetHum or targetHum.Health <= 0 then
                         Whitelist[p.Name] = nil
                     end
                     continue
                 end
 
-                if not Whitelist[p.Name] then
-                    if char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
-                        if not isInSafeZone(p) and not isPvPDisabled(p) then
+                if targetChar and targetHum and targetHrp and targetHum.Health > 0 then
+                    if not isInSafeZone(p) and not isPvPDisabled(p) then
                         notify("Scan System", "Checking: " .. p.Name, 1.5)
-                            local hum = char.Humanoid
-                            local startHealth = hum.Health
-                            
-                            for i = 1, 60 do
-                                if not running then break end
-                                teleportTo(p)
-                                task.wait(CONFIG.SkimDelay) 
-                            end
-                            
-                            task.wait(0.01) 
-                            local newHealth = hum.Health
-                            if newHealth < startHealth then
-                                Whitelist[p.Name] = true
-                                notify("Scan System", "Whitelist added: " .. p.Name, 2)
-                            end
+                        local startHealth = targetHum.Health
+
+                        for i = 1, 60 do
+                            if not running then break end
+                            targetChar = p.Character
+                            targetHum = targetChar and targetChar:FindFirstChild("Humanoid")
+                            targetHrp = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+                            if not targetHum or not targetHrp or targetHum.Health <= 0 then break end
+                            teleportTo(p)
+                            task.wait(CONFIG.SkimDelay)
+                        end
+
+                        task.wait(0.01)
+                        targetChar = p.Character
+                        targetHum = targetChar and targetChar:FindFirstChild("Humanoid")
+                        if targetHum and targetHum.Health < startHealth then
+                            Whitelist[p.Name] = true
+                            notify("Scan System", "Whitelist added: " .. p.Name, 2)
                         end
                     end
                 end
@@ -3732,328 +3800,7 @@ local function CheckDamageFromUI()
 end
 
 
--- ================================================================
--- PORTAL C TARGET-ISLAND TRAVEL LOCK
--- Keeps Auto Bounty movement paused while Portal C is opening,
--- selecting the destination, and completing the island transfer.
--- ================================================================
-local PortalTravel = {
-    Locked = false,
-    Destination = nil,
-    DestinationPos = nil,
-    Started = 0,
-    Token = 0,
-}
-
-
-local PORTAL_ISLANDS = {
-    [1] = {
-        {"Starter Island", Vector3.new(1038,115,1290)},
-        {"Marine Starter", Vector3.new(-3095,235,2100)},
-        {"Jungle", Vector3.new(-1340,135,-380)},
-        {"Pirate Village", Vector3.new(-1150,20,3900)},
-        {"Desert", Vector3.new(1100,20,4300)},
-        {"Frozen Village", Vector3.new(1150,20,-1150)},
-        {"Marine Fortress", Vector3.new(-5000,300,4300)},
-        {"Skylands", Vector3.new(-5000,700,-2600)},
-        {"Prison", Vector3.new(4900,170,740)},
-        {"Colosseum", Vector3.new(-2150,150,-3000)},
-        {"Magma Village", Vector3.new(-5200,20,8500)},
-        {"Underwater City", Vector3.new(61000,20,1400)},
-        {"Fountain City", Vector3.new(5200,430,4000)},
-    },
-    [2] = {
-        {"Kingdom of Rose", Vector3.new(-100,75,1200)},
-        {"Cafe", Vector3.new(-380,75,290)},
-        {"Green Zone", Vector3.new(-2400,75,-2400)},
-        {"Graveyard", Vector3.new(-5600,80,-750)},
-        {"Snow Mountain", Vector3.new(900,400,-5500)},
-        {"Hot and Cold", Vector3.new(-6000,200,-5000)},
-        {"Cursed Ship", Vector3.new(920,125,33000)},
-        {"Ice Castle", Vector3.new(5500,40,-6200)},
-        {"Forgotten Island", Vector3.new(-3000,250,-10000)},
-        {"Dark Arena", Vector3.new(3800,20,-3500)},
-    },
-    [3] = {
-        {"Port Town", Vector3.new(-290,45,5500)},
-        {"Hydra Island", Vector3.new(5250,1000,3700)},
-        {"Great Tree", Vector3.new(2200,500,-700)},
-        {"Floating Turtle", Vector3.new(-13000,330,-7500)},
-        {"Castle on the Sea", Vector3.new(-5000,315,-3000)},
-        {"Haunted Castle", Vector3.new(-9500,140,5500)},
-        {"Sea of Treats", Vector3.new(-2000,350,-12000)},
-        {"Cake Island", Vector3.new(-2100,70,-12300)},
-        {"Chocolate Island", Vector3.new(230,130,-12500)},
-        {"Peanut Island", Vector3.new(-2100,160,-10300)},
-        {"Ice Cream Island", Vector3.new(-900,70,-10800)},
-    },
-}
-
-local PORTAL_PLACE_SEA = {
-    [2753915549] = 1, [85211729168715] = 1,
-    [4442272183] = 2, [79091703265657] = 2,
-    [7449423635] = 3, [100117331123089] = 3,
-}
-
-local function portalGetTargetIsland(target)
-    local root = target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    local sea = PORTAL_PLACE_SEA[game.PlaceId]
-    if not root or not sea or not PORTAL_ISLANDS[sea] then return nil end
-
-    local best, bestDist
-    for _, item in ipairs(PORTAL_ISLANDS[sea]) do
-        local d = (root.Position - item[2]).Magnitude
-        if not bestDist or d < bestDist then
-            best, bestDist = item, d
-        end
-    end
-    return best and best[1], best and best[2]
-end
-
-local function portalNormalizeName(value)
-    value = tostring(value or ""):lower()
-    value = value:gsub("[%c]", " ")
-    value = value:gsub("[^%w%s]", " ")
-    value = value:gsub("%s+", " ")
-    return value:match("^%s*(.-)%s*$") or ""
-end
-
-local function portalGetButton(destination)
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return nil end
-
-    -- Gateway can be nested differently depending on the current Blox Fruits UI.
-    local gateway = pg:FindFirstChild("Gateway", true)
-    if not gateway then
-        local main = pg:FindFirstChild("Main", true)
-        gateway = main and main:FindFirstChild("Gateway", true)
-    end
-    if not gateway then return nil end
-
-    local wanted = portalNormalizeName(destination)
-    if wanted == "" then return nil end
-
-    local exactName, exactText, partial = nil, nil, nil
-
-    for _, obj in ipairs(gateway:GetDescendants()) do
-        if obj:IsA("GuiButton") then
-            local name = portalNormalizeName(obj.Name)
-            local text = portalNormalizeName(obj.Text)
-
-            -- Exact matches have priority.
-            if name == wanted then
-                exactName = obj
-                break
-            end
-            if text == wanted then
-                exactText = obj
-            end
-
-            -- Handle names such as "KingdomOfRose", "Kingdom of Rose Button",
-            -- or destination labels with extra UI text.
-            if not partial then
-                if (name ~= "" and (name:find(wanted, 1, true) or wanted:find(name, 1, true)))
-                    or (text ~= "" and (text:find(wanted, 1, true) or wanted:find(text, 1, true))) then
-                    partial = obj
-                end
-            end
-        end
-    end
-
-    return exactName or exactText or partial
-end
-
-local function portalFireButton(button)
-    if not button then return false end
-
-    -- The actual Portal Gateway uses GuiButtons, so Activate() is the
-    -- least executor-dependent way to select the destination.
-    local activated = false
-    pcall(function()
-        if button:IsA("GuiButton") then
-            button:Activate()
-            activated = true
-        end
-    end)
-    if activated then
-        task.wait(0.15)
-        return true
-    end
-
-    if type(getconnections) == "function" then
-        local ok = pcall(function()
-            for _, c in ipairs(getconnections(button.MouseButton1Click)) do
-                if c.Function then
-                    c.Function()
-                    return true
-                end
-            end
-        end)
-        if ok then return true end
-    end
-
-    if type(firesignal) == "function" then
-        local ok = pcall(firesignal, button.MouseButton1Click)
-        if ok then return true end
-    end
-
-    return false
-end
-
-local function portalPressC()
-    local vim = game:GetService("VirtualInputManager")
-    if type(keypress) == "function" then
-        local ok = pcall(keypress, 0x43)
-        if ok then
-            task.wait(0.08)
-            if type(keyrelease) == "function" then pcall(keyrelease, 0x43) end
-            return
-        end
-    end
-    pcall(function()
-        vim:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-        task.wait(0.08)
-        vim:SendKeyEvent(false, Enum.KeyCode.C, false, game)
-    end)
-end
-
-local function portalFindGateway()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return nil end
-
-    local gateway = pg:FindFirstChild("Gateway", true)
-    if gateway then return gateway end
-
-    local main = pg:FindFirstChild("Main", true)
-    return main and main:FindFirstChild("Gateway", true) or nil
-end
-
-local function portalCTravel(destination, destinationPos)
-    local character = LocalPlayer.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not hrp then return false end
-
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    local tool = character:FindFirstChild("Portal-Portal") or (backpack and backpack:FindFirstChild("Portal-Portal"))
-    if not tool then
-        warn("[Portal C] Portal fruit not found")
-        return false
-    end
-
-    PortalTravel.Locked = true
-    PortalTravel.Destination = destination
-    PortalTravel.DestinationPos = destinationPos
-    PortalTravel.Started = tick()
-    PortalTravel.Token = PortalTravel.Token + 1
-    local myToken = PortalTravel.Token
-
-    if tool.Parent ~= character then
-        pcall(function() humanoid:EquipTool(tool) end)
-        task.wait(0.2)
-    end
-
-    getgenv().PortalCWaiting = true
-    portalPressC()
-
-    local pg, main, gateway
-    local deadline = tick() + 8
-    while tick() < deadline and PortalTravel.Locked and myToken == PortalTravel.Token do
-        gateway = portalFindGateway()
-        if gateway and (gateway.Visible == nil or gateway.Visible) then break end
-        task.wait(0.1)
-    end
-
-    if not gateway then
-        warn("[Portal C] Gateway did not appear")
-        PortalTravel.Locked = false
-        getgenv().PortalCWaiting = false
-        getgenv().PortalCTraveling = false
-        return false
-    end
-
-    local clicked = false
-    deadline = tick() + 5
-    while not clicked and tick() < deadline and PortalTravel.Locked and myToken == PortalTravel.Token do
-        local button = portalGetButton(destination)
-        if button then
-            clicked = portalFireButton(button)
-            if clicked then break end
-        end
-        task.wait(0.1)
-    end
-
-    if not clicked then
-        warn("[Portal C] Could not select destination: ", destination)
-        PortalTravel.Locked = false
-        getgenv().PortalCWaiting = false
-        getgenv().PortalCTraveling = false
-        return false
-    end
-
-    print("[Portal C] Selected: ", destination)
-    getgenv().PortalCWaiting = false
-    getgenv().PortalCTraveling = true
-
-    local arrivalDeadline = tick() + 30
-    while PortalTravel.Locked and myToken == PortalTravel.Token do
-        local char = LocalPlayer.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root and (root.Position - destinationPos).Magnitude <= 2500 then break end
-        if tick() > arrivalDeadline then
-            warn("[Portal C] Arrival timeout; retrying C without character reset")
-            arrivalDeadline = tick() + 20
-            portalPressC()
-        end
-        task.wait(0.2)
-    end
-
-    if myToken == PortalTravel.Token then
-        PortalTravel.Locked = false
-        getgenv().PortalCWaiting = false
-        getgenv().PortalCTraveling = false
-        getgenv().PortalCReady = true
-    end
-    return true
-end
-
--- Public trigger: the movement loop calls this when the target is on another island.
-local function PortalCToTargetIsland()
-    if PortalTravel.Locked then return true end
-    if not currentTarget then return false end
-
-    local destination, destinationPos = portalGetTargetIsland(currentTarget)
-    if not destination or not destinationPos then return false end
-
-    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return false end
-
-    -- If we're already on the target's island, don't open Portal C.
-    if (myRoot.Position - destinationPos).Magnitude <= 2200 then
-        return false
-    end
-
-    -- Lock BEFORE spawning the Portal routine so the movement loop cannot
-    -- start a normal long-distance tween during the 3-4 second Gateway delay.
-    PortalTravel.Locked = true
-    PortalTravel.Destination = destination
-    PortalTravel.DestinationPos = destinationPos
-
-    task.spawn(function()
-        local ok = portalCTravel(destination, destinationPos)
-        if not ok then
-            PortalTravel.Locked = false
-            getgenv().PortalCTraveling = false
-        end
-    end)
-    return true
-end
-
-getgenv().PortalCToTargetIsland = PortalCToTargetIsland
-getgenv().PortalCTraveling = false
-
 local function SmartTeleport()
-    -- Portal C keeps normal movement alive, but at a very slow speed.
     local safeConfig = getgenv().Config and getgenv().Config["SafeCoolDown"]
     if type(safeConfig) == "table" and safeConfig["Enabled"] then
         local targetCFrame = getTargetCFrame(currentTarget)
@@ -4109,7 +3856,7 @@ local function startRandom()
     stopAll() 
     running = true
 
-    if getgenv().Config.mode == "method1" then
+    if getgenv().Config and getgenv().Config.mode == "method1" then
         pickNewTarget("start")
         local nearStartTime = tick()
         local approachStartTime = tick()
@@ -4121,11 +3868,6 @@ local function startRandom()
                 if not running then break end
                 if not checkCurrentTarget() then task.wait(1); continue end
                 
-                -- If the target is on another island, start Portal C and let the
-                -- PortalTravel lock suppress normal tweening until arrival.
-                if not PortalTravel.Locked then
-                    PortalCToTargetIsland()
-                end
                 SmartTeleport(currentTarget)
                  
                 local hum = currentTarget.Character and currentTarget.Character:FindFirstChild("Humanoid")
@@ -4212,9 +3954,6 @@ local function startRandom()
                 if Whitelist[currentTarget.Name] then
                     for i = 1, 5 do
                         if not running or not checkCurrentTarget() then break end
-                        if not PortalTravel.Locked then
-                            PortalCToTargetIsland()
-                        end
                         SmartTeleport(currentTarget) 
                         task.wait(CONFIG.SkimDelay) 
                     end
@@ -4356,7 +4095,7 @@ task.spawn(function()
     end
 end)
 
-local fileName = "hitbox.meyy"
+local fileName = "hitbox.Merciful"
 local baseHitboxSize = 0
 
 -------------------------------------------------------------------------
@@ -4495,79 +4234,9 @@ end)
 
 
 ---------
-if getgenv().MainUI then
-    pcall(function() getgenv().MainUI:Destroy() end)
-    getgenv().MainUI = nil
-end
-
-if getgenv().Config.BlackScreen then
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "ScreenGui"
-    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    ScreenGui.Parent = Services.CoreGui
-
-    local Frame = Instance.new("Frame")
-    Frame.Name = "Frame"
-    Frame.Position = UDim2.new(-0.206146, 0, -0.150063, 0)
-    Frame.Size = UDim2.new(0, 2544, 0, 1355)
-    Frame.BackgroundColor3 = Color3.new(0.0235294, 0.0235294, 0.0235294)
-    Frame.BorderSizePixel = 0
-    Frame.Parent = ScreenGui
-
-    local TextLabel = Instance.new("TextLabel")
-    TextLabel.Position = UDim2.new(0.462572, 0, 0.343508, 0)
-    TextLabel.Size = UDim2.new(0, 200, 0, 50)
-    TextLabel.BackgroundTransparency = 1
-    TextLabel.Text = "Time Elapsed : ..."
-    TextLabel.TextColor3 = Color3.new(1, 1, 1)
-    TextLabel.TextSize = 28
-    TextLabel.FontFace = Font.new("rbxasset://fonts/families/FredokaOne.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    TextLabel.Parent = ScreenGui
-    getgenv()._BS_TimeLabel = TextLabel
-
-    local TextLabel2 = Instance.new("TextLabel")
-    TextLabel2.Position = UDim2.new(0.462572, 0, 0.266818, 0)
-    TextLabel2.Size = UDim2.new(0, 200, 0, 50)
-    TextLabel2.BackgroundTransparency = 1
-    TextLabel2.Text = "Bounty Earned : ...."
-    TextLabel2.TextColor3 = Color3.new(1, 1, 1)
-    TextLabel2.TextSize = 28
-    TextLabel2.FontFace = Font.new("rbxasset://fonts/families/FredokaOne.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    TextLabel2.Parent = ScreenGui
-    getgenv()._BS_BountyLabel = TextLabel2
-
-    local TextLabel3 = Instance.new("TextLabel")
-    TextLabel3.Position = UDim2.new(0.462572, 0, 0.204578, 0)
-    TextLabel3.Size = UDim2.new(0, 200, 0, 50)
-    TextLabel3.BackgroundTransparency = 1
-    TextLabel3.Text = "Target : "
-    TextLabel3.TextColor3 = Color3.new(1, 1, 1)
-    TextLabel3.TextSize = 25
-    TextLabel3.FontFace = Font.new("rbxasset://fonts/families/FredokaOne.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    TextLabel3.Parent = ScreenGui
-    getgenv()._BS_TargetLabel = TextLabel3
-
-    local TextLabel4 = Instance.new("TextLabel")
-    TextLabel4.Position = UDim2.new(0.350045, 0, 0.0638366, 0)
-    TextLabel4.Size = UDim2.new(0, 571, 0, 102)
-    TextLabel4.BackgroundTransparency = 1
-    TextLabel4.Text = "Meyy Hub - Auto Bounty"
-    TextLabel4.TextColor3 = Color3.new(1, 1, 1)
-    TextLabel4.TextSize = 35
-    TextLabel4.FontFace = Font.new("rbxasset://fonts/families/FredokaOne.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    TextLabel4.Parent = ScreenGui
-
-    local Line = Instance.new("Frame")
-    Line.Position = UDim2.new(0.361577, 0, 0.191517, 0)
-    Line.Size = UDim2.new(0, 533, 0, 1)
-    Line.BackgroundColor3 = Color3.new(0.686275, 0.0980392, 0.658824)
-    Line.BorderSizePixel = 0
-    Line.Parent = ScreenGui
-    
-    getgenv().MainUI = ScreenGui
-end
 ---------
-
+-- The hologram Dynamic-Island UI below is the only primary UI.
+---------
 
 LocalPlayer.Chatted:Connect(function(msg)
     local mText = msg:lower()
@@ -4727,7 +4396,7 @@ end
 ---------
 
 ---------
-local SAVE_FOLDER = "MeyyHub_DataBounty"
+local SAVE_FOLDER = "MercifulHub_DataBounty"
 local SAVE_FILE = SAVE_FOLDER .. "/TotalBounty_" .. game.Players.LocalPlayer.Name .. ".json"
 if not isfolder(SAVE_FOLDER) then makefolder(SAVE_FOLDER) end
 
@@ -4809,21 +4478,22 @@ spawn(function()
         pcall(function()
             saveEarnedData()
             
-            if not getgenv().Config.BlackScreen then return end
-            local tLbl = getgenv()._BS_TimeLabel
-            local bLbl = getgenv()._BS_BountyLabel
-            local tgLbl = getgenv()._BS_TargetLabel
-            if not tLbl or not bLbl or not tgLbl then return end
-
-            tLbl.Text = "Time Elapsed : " .. formatTime(totalTimeElapsed + math.floor(os.time() - bsStartTime))
-            bLbl.Text = "Bounty Earned : +" .. tostring(sessionBountyEarned) .. "$ | Total: " .. tostring(totalBountyEarned) .. "$"
-
-            if IsScanning then
-                tgLbl.Text = "Target : Scanning..."
-            elseif currentTarget then
-                tgLbl.Text = "Target : " .. currentTarget.Name .. " (" .. tostring(getBounty(currentTarget)) .. "$)"
-            else
-                tgLbl.Text = "Target : Searching..."
+            -- Update the old BlackScreen labels only when that UI is enabled.
+            if getgenv().Config and getgenv().Config.BlackScreen then
+                local tLbl = getgenv()._BS_TimeLabel
+                local bLbl = getgenv()._BS_BountyLabel
+                local tgLbl = getgenv()._BS_TargetLabel
+                if tLbl and bLbl and tgLbl then
+                    tLbl.Text = "Time Elapsed : " .. formatTime(totalTimeElapsed + math.floor(os.time() - bsStartTime))
+                    bLbl.Text = "Bounty Earned : +" .. tostring(sessionBountyEarned) .. "$ | Total: " .. tostring(totalBountyEarned) .. "$"
+                    if IsScanning then
+                        tgLbl.Text = "Target : Scanning..."
+                    elseif currentTarget then
+                        tgLbl.Text = "Target : " .. currentTarget.Name .. " (" .. tostring(getBounty(currentTarget)) .. "$)"
+                    else
+                        tgLbl.Text = "Target : Searching..."
+                    end
+                end
             end
         end)
     end
@@ -4831,74 +4501,111 @@ end)
 
 ---------
 local lastTickBounty = 0
+local pendingBountyTarget = nil
+local pendingBountyAt = 0
+local pendingBountyValue = 0
+local lastObservedTarget = nil
+local lastObservedHealth = nil
+local lastRewardTick = 0
 
-spawn(function()
-    task.wait(1) 
-    pcall(function()
-        lastTickBounty = tonumber(getBounty(game.Players.LocalPlayer)) or 0
+local function getCurrentBountySafe()
+    local ok, value = pcall(function()
+        return tonumber(getBounty(LocalPlayer)) or 0
     end)
-    
+    return ok and value or 0
+end
+
+local function queueBountyReward(targetName)
+    if not targetName or targetName == "" then return end
+    pendingBountyTarget = tostring(targetName)
+    pendingBountyAt = tick()
+    pendingBountyValue = getCurrentBountySafe()
+end
+
+local function recordBountyReward(earnedBounty, targetName, currentBounty)
+    earnedBounty = tonumber(earnedBounty) or 0
+    if earnedBounty <= 0 then return end
+    if tick() - lastRewardTick < 1 then return end
+    lastRewardTick = tick()
+
+    targetName = tostring(targetName or "Unknown")
+    sessionBountyEarned = (tonumber(sessionBountyEarned) or 0) + earnedBounty
+    totalBountyEarned = (tonumber(totalBountyEarned) or 0) + earnedBounty
+    allTimeKills = (tonumber(allTimeKills) or 0) + 1
+
+    local totalSeconds = totalTimeElapsed + math.floor(os.time() - bsStartTime)
+    local currentBPH = 0
+    if totalSeconds > 0 then
+        currentBPH = math.floor((totalBountyEarned / totalSeconds) * 3600)
+    end
+
+    pcall(function() sendKillMessage(earnedBounty, targetName) end)
+    pcall(function() sendKillWebhook(targetName, earnedBounty, currentBounty, totalBountyEarned, allTimeKills, currentBPH) end)
+    pcall(saveEarnedData)
+
+    if getgenv().DynamicBounty_API then
+        pcall(function()
+            getgenv().DynamicBounty_API.SetStatus("Earned " .. tostring(earnedBounty) .. " From " .. targetName, 5)
+            getgenv().DynamicBounty_API.UpdateStat("Bounty Earned", "+" .. tostring(sessionBountyEarned))
+            getgenv().DynamicBounty_API.UpdateStat("Total Earned", tostring(totalBountyEarned))
+            getgenv().DynamicBounty_API.UpdateStat("Total Kill", tostring(allTimeKills))
+            getgenv().DynamicBounty_API.UpdateStat("Bounty Per Hour", tostring(currentBPH) .. " / hr")
+        end)
+    end
+end
+
+-- Robust reward tracker:
+-- 1) watches the local bounty value for a positive delta;
+-- 2) also watches the currently selected target's Humanoid death, so delayed bounty
+--    replication can still be attributed to the correct target.
+task.spawn(function()
+    task.wait(1)
+    lastTickBounty = getCurrentBountySafe()
+
     while task.wait(0.1) do
         pcall(function()
-            local currentBounty = tonumber(getBounty(game.Players.LocalPlayer)) or 0
-            
-            if lastTickBounty > 0 then
-                if currentBounty > lastTickBounty then
-                    local earnedBounty = currentBounty - lastTickBounty
-                    
+            local currentBounty = getCurrentBountySafe()
+            local target = currentTarget
+            local hum = target and target.Character and target.Character:FindFirstChildOfClass("Humanoid")
 
-                    local deadTargetName = "Unknown"
-
-                    pcall(function()
-                        local notifs = game.Players.LocalPlayer.PlayerGui:FindFirstChild("Notifications")
-                        if notifs then
-                            for _, v in ipairs(notifs:GetChildren()) do
-                                local lbl = v:IsA("TextLabel") and v or v:FindFirstChildWhichIsA("TextLabel", true)
-                                if lbl and lbl.Text and lbl.Text ~= "" then
-                                    local txt = lbl.Text
-                                    local matchedName = txt:match("([%w_]+)!")
-                                    if matchedName then
-                                        deadTargetName = matchedName
-                                        break
-                                    end
-                                end
-                            end
-                        end
-                    end)
-
-                    if deadTargetName == "Unknown" and currentTarget and currentTarget.Name then
-                        deadTargetName = currentTarget.Name
-                    end
-                    
-                    task.spawn(function()
-                        sendKillMessage(earnedBounty, deadTargetName)
-                    end)
-
-                    sessionBountyEarned = (tonumber(sessionBountyEarned) or 0) + earnedBounty
-                    totalBountyEarned = (tonumber(totalBountyEarned) or 0) + earnedBounty
-                    allTimeKills = (tonumber(allTimeKills) or 0) + 1
-                    
-                    local totalSeconds = totalTimeElapsed + math.floor(os.time() - bsStartTime)
-                    local currentBPH = 0
-                    if totalSeconds > 0 and totalBountyEarned > 0 then
-                        currentBPH = math.floor((totalBountyEarned / totalSeconds) * 3600)
-                    end
-                    
-                    sendKillWebhook(deadTargetName, earnedBounty, currentBounty, totalBountyEarned, allTimeKills, currentBPH)
-                    saveEarnedData()
-
-                    
-                    if getgenv().DynamicBounty_API then
-                        getgenv().DynamicBounty_API.SetStatus("Earned " .. tostring(earnedBounty) .. " From " .. deadTargetName, 5)
-                    end
-                elseif currentBounty < lastTickBounty then
-                    local lostBounty = lastTickBounty - currentBounty
-                    totalBountyEarned = (tonumber(totalBountyEarned) or 0) - lostBounty
-                    saveEarnedData()
-                end
+            if target ~= lastObservedTarget then
+                lastObservedTarget = target
+                lastObservedHealth = hum and hum.Health or nil
             end
-            
-            if currentBounty > 0 then
+
+            if hum then
+                local hp = hum.Health
+                if lastObservedHealth and lastObservedHealth > 0 and hp <= 0 then
+                    queueBountyReward(target.Name)
+                end
+                lastObservedHealth = hp
+            elseif target and pendingBountyTarget == nil then
+                -- Target character disappeared; this is also a valid death signal.
+                queueBountyReward(target.Name)
+            end
+
+            if currentBounty > lastTickBounty then
+                local earned = currentBounty - lastTickBounty
+                local targetName = pendingBountyTarget
+                    or (lastObservedTarget and lastObservedTarget.Name)
+                    or (currentTarget and currentTarget.Name)
+                    or "Unknown"
+
+                recordBountyReward(earned, targetName, currentBounty)
+                pendingBountyTarget = nil
+                pendingBountyAt = 0
+                pendingBountyValue = 0
+            elseif pendingBountyTarget and tick() - pendingBountyAt > 8 then
+                -- Don't leave a stale death queued forever.
+                pendingBountyTarget = nil
+                pendingBountyAt = 0
+                pendingBountyValue = 0
+            elseif currentBounty < lastTickBounty then
+                -- PvP death/loss can lower bounty; it is not a reward.
+                pcall(saveEarnedData)
+            end
+
+            if currentBounty >= 0 then
                 lastTickBounty = currentBounty
             end
         end)
@@ -4906,275 +4613,325 @@ spawn(function()
 end)
 
 
-
 local function IsPvpOn(player)
     return player:GetAttribute("PvpDisabled") ~= true
 end
 
 ---------
-if not getgenv().Config.BlackScreen then
-    local CoreGui = game:GetService("CoreGui")
-    local TweenService = game:GetService("TweenService")
-    local RunService = game:GetService("RunService")
-    local UserInputService = game:GetService("UserInputService")
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
+--[[
+    Merciful Hub - UI (Blue / Pink)
+    UI only. Same layout and animations as the original hologram dynamic-island UI.
 
-    local Themes = {
-        ["Dark"] = {
-            MainBg = Color3.fromHex("#000000"),
-            MainBgTrans = 0.25,
-            ContainerBg = Color3.fromHex("#525252"),
-            ContainerTrans = 0.6,
-            PillBack = Color3.fromRGB(15, 15, 15),
-            TextColor = Color3.fromHex("#FFFFFF"),
-            DescTextColor = Color3.fromHex("#AAAAAA"),
-            MainStroke = Color3.fromHex("#FFFFFF"),
-            TextContrast = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromHex("#808080")),
-                ColorSequenceKeypoint.new(0.50, Color3.fromHex("#D3D3D3")),
-                ColorSequenceKeypoint.new(1, Color3.fromHex("#000000"))
-            }),
-            Wave = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromHex("#0D0D0D")),
-                ColorSequenceKeypoint.new(0.5, Color3.fromHex("#1A1A1A")),
-                ColorSequenceKeypoint.new(1, Color3.fromHex("#0D0D0D"))
-            }),
-            TextGrad = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromHex("#FFFFFF")),
-                ColorSequenceKeypoint.new(0.5, Color3.fromHex("#8A8A8A")),
-                ColorSequenceKeypoint.new(1, Color3.fromHex("#1A1A1A"))
-            }),
-            RowStroke = Color3.fromHex("#FFFFFF"),
-            RowStrokeGrad = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromHex("#FFFFFF")),
-                ColorSequenceKeypoint.new(0.5, Color3.fromHex("#555555")),
-                ColorSequenceKeypoint.new(1, Color3.fromHex("#54626F"))
-            }),
-            ToggleActive = Color3.fromHex("#888888"),
-            LoopSeq = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromHex("#AAAAAA")),
-                ColorSequenceKeypoint.new(0.5, Color3.fromHex("#222222")),
-                ColorSequenceKeypoint.new(1, Color3.fromHex("#000000"))
-            }),
-            HoloBeam = Color3.fromHex("#B4DCFF")
-        }
-    }
+    Hooks:
+      getgenv().DynamicBounty_API.SetStatus(text, duration)
+      getgenv().DynamicBounty_API.UpdateStat(key, value)
+          keys: "Current Bounty" "Bounty Earned" "Bounty Per Hour" "Total Kill" "Total Earned"
+      getgenv().DynamicBounty_API.Toggle()
+      getgenv().MercifulHub.Notify(title, message, duration)
+      getgenv().MercifulHub.OnSkip  = function() end   -- double click island
+      getgenv().MercifulHub.OnStop  = function() end   -- triple click island
+      getgenv().MercifulHub.Destroy()
+]]
 
-    local CurrentTheme = "Dark"
-    local UI_Elements = {
-        Containers = {},
-        TextGradients = {},
-        RotatingGradients = {},
-        AnimatedGradients = {},
-        RowStrokes = {},
-        RowStrokeGradients = {},
-        Descriptions = {},
-        Switches = {}
-    }
+if getgenv().MainUI then pcall(function() getgenv().MainUI:Destroy() end) end
+if getgenv().MercifulHub and getgenv().MercifulHub.Destroy then pcall(getgenv().MercifulHub.Destroy) end
 
-    local BountyGui = Instance.new("ScreenGui")
-    BountyGui.Name = "Meyy_DynamicBounty_" .. math.random(1000, 9999)
-    BountyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    BountyGui.ResetOnSpawn = false
+local cloneref = cloneref or function(x) return x end
+local TweenService = cloneref(game:GetService("TweenService"))
+local RunService = cloneref(game:GetService("RunService"))
+local Players = cloneref(game:GetService("Players"))
+local CoreGui = cloneref(game:GetService("CoreGui"))
+local LocalPlayer = Players.LocalPlayer
 
-    if gethui then
-        BountyGui.Parent = gethui()
-    else
-        pcall(function() BountyGui.Parent = CoreGui end)
-        if not BountyGui.Parent then
-            BountyGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+local Hub = { OnSkip = function() end, OnStop = function() end, _conns = {} }
+
+----------------------------------------------------------------
+-- THEME  (blue + pink)
+----------------------------------------------------------------
+local BLUE  = Color3.fromHex("#4DA3FF")
+local PINK  = Color3.fromHex("#FF5FC8")
+local Theme = {
+    MainBg = Color3.fromHex("#05050F"),
+    MainBgTrans = 0.2,
+    ContainerBg = Color3.fromHex("#2A2260"),
+    ContainerTrans = 0.6,
+    PillBack = Color3.fromRGB(8, 8, 20),
+    TextColor = Color3.fromHex("#FFFFFF"),
+    DescTextColor = Color3.fromHex("#B8C4F5"),
+    MainStroke = Color3.fromHex("#FFFFFF"),
+    TextContrast = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromHex("#FFFFFF")),
+        ColorSequenceKeypoint.new(0.5, Color3.fromHex("#BFD9FF")),
+        ColorSequenceKeypoint.new(1, Color3.fromHex("#FF8AD8")),
+    }),
+    RowStroke = Color3.fromHex("#FFFFFF"),
+    RowStrokeGrad = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, PINK),
+        ColorSequenceKeypoint.new(0.5, BLUE),
+        ColorSequenceKeypoint.new(1, PINK),
+    }),
+    LoopSeq = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, PINK),
+        ColorSequenceKeypoint.new(0.5, BLUE),
+        ColorSequenceKeypoint.new(1, Color3.fromHex("#0A0A1A")),
+    }),
+    HoloBeam = Color3.fromHex("#6CB8FF"),
+}
+
+local UI = { TextGradients = {}, RotatingGradients = {}, AnimatedGradients = {}, RowStrokeGradients = {} }
+
+----------------------------------------------------------------
+-- ROOT GUI
+----------------------------------------------------------------
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "MercifulHub_" .. math.random(1000, 9999)
+Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+Gui.ResetOnSpawn = false
+if gethui then Gui.Parent = gethui()
+else
+    pcall(function() Gui.Parent = CoreGui end)
+    if not Gui.Parent then Gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+end
+getgenv().MainUI = Gui
+
+local function ApplyTextGradient(obj)
+    obj.TextColor3 = Theme.TextColor
+    local grad = Instance.new("UIGradient", obj)
+    grad.Rotation = 90
+    grad.Color = Theme.TextContrast
+    table.insert(UI.TextGradients, grad)
+    local shadow = Instance.new("UIStroke")
+    shadow.Color = Color3.fromRGB(10, 6, 24)
+    shadow.Thickness = 0.5
+    shadow.Parent = obj
+end
+
+----------------------------------------------------------------
+-- NOTIFICATIONS (bottom right, rotating gradient border)
+----------------------------------------------------------------
+local Notif = { gui = Gui, notifications = {}, spacing = 65 }
+
+function Notif:UpdatePositions()
+    for i, n in ipairs(self.notifications) do
+        if n and n.Parent then
+            TweenService:Create(n, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+                {Position = UDim2.new(1, -15, 1, -15 - ((i - 1) * self.spacing))}):Play()
         end
     end
-    getgenv().MainUI = BountyGui
+end
 
-    local function ApplyTextGradient(obj)
-        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-            obj.TextColor3 = Themes[CurrentTheme].TextColor
-            local grad = Instance.new("UIGradient", obj)
-            grad.Rotation = 90
-            grad.Color = Themes[CurrentTheme].TextContrast
-            table.insert(UI_Elements.TextGradients, grad)
-            local shadow = Instance.new("UIStroke")
-            shadow.Color = Color3.fromRGB(10, 10, 10)
-            shadow.Thickness = 0.5
-            shadow.Transparency = 0
-            shadow.Parent = obj
+function Notif:Notify(title, message, duration)
+    local dur = duration or 3
+    for _, n in ipairs(self.notifications) do
+        if n and n.Parent and n:GetAttribute("NotifTitle") == title then
+            local l = n:FindFirstChild("MessageLabel")
+            if l then l.Text = message end
+            n:SetAttribute("ExpireTime", tick() + dur)
+            return
         end
     end
 
-    local NotchFrame = Instance.new("Frame", BountyGui)
-    NotchFrame.Name = "DynamicIslandNotch"
-    NotchFrame.Size = UDim2.new(0, 200, 0, 32)
-    NotchFrame.Position = UDim2.new(0.5, 0, 0, 12)
-    NotchFrame.AnchorPoint = Vector2.new(0.5, 0)
-    NotchFrame.BackgroundColor3 = Themes[CurrentTheme].PillBack
-    NotchFrame.BackgroundTransparency = 0.1
-    NotchFrame.BorderSizePixel = 0
-    NotchFrame.ZIndex = 20
-    Instance.new("UICorner", NotchFrame).CornerRadius = UDim.new(1, 0)
+    local m = Instance.new("Frame", self.gui)
+    m.BackgroundColor3 = Theme.PillBack
+    m.BackgroundTransparency = 0.2
+    m.Size = UDim2.new(0, 230, 0, 55)
+    m.Position = UDim2.new(1, 250, 1, -15)
+    m.AnchorPoint = Vector2.new(1, 1)
+    m.ClipsDescendants = true
+    m:SetAttribute("NotifTitle", title)
+    m:SetAttribute("ExpireTime", tick() + dur)
+    Instance.new("UICorner", m).CornerRadius = UDim.new(0, 8)
 
-    local NotchStroke = Instance.new("UIStroke", NotchFrame)
-    NotchStroke.Thickness = 1.5
-    NotchStroke.Color = Themes[CurrentTheme].MainStroke
-
-    local NotchStrokeGrad = Instance.new("UIGradient", NotchStroke)
-    NotchStrokeGrad.Color = Themes[CurrentTheme].LoopSeq
-    table.insert(UI_Elements.RotatingGradients, NotchStrokeGrad)
-
-    local NotchScale = Instance.new("UIScale", NotchFrame)
-    NotchScale.Scale = 1
-
-    local NotchClickBtn = Instance.new("TextButton", NotchFrame)
-    NotchClickBtn.Size = UDim2.new(1, 0, 1, 0)
-    NotchClickBtn.BackgroundTransparency = 1
-    NotchClickBtn.Text = ""
-    NotchClickBtn.ZIndex = 25
-
-    local CameraLens = Instance.new("Frame", NotchFrame)
-    CameraLens.Size = UDim2.new(0, 11, 0, 11)
-    CameraLens.Position = UDim2.new(0, 14, 0.5, 0)
-    CameraLens.AnchorPoint = Vector2.new(0, 0.5)
-    CameraLens.BackgroundColor3 = Color3.fromRGB(20, 30, 45)
-    Instance.new("UICorner", CameraLens).CornerRadius = UDim.new(1, 0)
-
-    local CameraLensCore = Instance.new("Frame", CameraLens)
-    CameraLensCore.Size = UDim2.new(0, 5, 0, 5)
-    CameraLensCore.Position = UDim2.new(0.5, 0, 0.5, 0)
-    CameraLensCore.AnchorPoint = Vector2.new(0.5, 0.5)
-    CameraLensCore.BackgroundColor3 = Color3.fromRGB(40, 80, 120)
-    Instance.new("UICorner", CameraLensCore).CornerRadius = UDim.new(1, 0)
-
-    local SensorDot = Instance.new("Frame", NotchFrame)
-    SensorDot.Size = UDim2.new(0, 7, 0, 7)
-    SensorDot.Position = UDim2.new(0, 32, 0.5, 0)
-    SensorDot.AnchorPoint = Vector2.new(0, 0.5)
-    SensorDot.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    Instance.new("UICorner", SensorDot).CornerRadius = UDim.new(1, 0)
-
-    local NotchTextContainer = Instance.new("CanvasGroup", NotchFrame)
-    NotchTextContainer.Name = "TextContainer"
-    NotchTextContainer.Size = UDim2.new(1, -50, 1, 0)
-    NotchTextContainer.Position = UDim2.new(0, 44, 0, 0)
-    NotchTextContainer.BackgroundTransparency = 1
-
-    local NotchMaskGrad = Instance.new("UIGradient", NotchTextContainer)
-    NotchMaskGrad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 1),
-        NumberSequenceKeypoint.new(0.15, 0),
-        NumberSequenceKeypoint.new(0.85, 0),
-        NumberSequenceKeypoint.new(1, 1)
+    local u = Instance.new("UIStroke", m)
+    u.Thickness = 1.2
+    u.Color = Color3.new(1, 1, 1)
+    local e = Instance.new("UIGradient", u)
+    e.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, PINK),
+        ColorSequenceKeypoint.new(0.5, BLUE),
+        ColorSequenceKeypoint.new(1, PINK),
     })
 
-    local DefaultStatusLabel = Instance.new("TextLabel", NotchTextContainer)
-    DefaultStatusLabel.Name = "DefaultStatus"
-    DefaultStatusLabel.Size = UDim2.new(1, 0, 1, 0)
-    DefaultStatusLabel.Position = UDim2.new(0, -17.5, 0, 0)
-    DefaultStatusLabel.BackgroundTransparency = 1
-    DefaultStatusLabel.Font = Enum.Font.GothamBold
-    DefaultStatusLabel.Text = "мєyy huɓ"
-    DefaultStatusLabel.TextSize = 14
-    DefaultStatusLabel.TextTransparency = 0
-    DefaultStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    DefaultStatusLabel.TextYAlignment = Enum.TextYAlignment.Center
-    ApplyTextGradient(DefaultStatusLabel)
+    local function Label(txt, y, size, isTitle)
+        local l = Instance.new("TextLabel", m)
+        l.Name = isTitle and "TitleLabel" or "MessageLabel"
+        l.Size = UDim2.new(1, -24, 0, 20)
+        l.Position = UDim2.new(0.5, 0, 0, y)
+        l.AnchorPoint = Vector2.new(0.5, 0)
+        l.BackgroundTransparency = 1
+        l.Font = Enum.Font.GothamBold
+        l.Text = txt
+        l.TextSize = size
+        l.TextColor3 = Color3.new(1, 1, 1)
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        local g = Instance.new("UIGradient", l)
+        g.Rotation = 90
+        g.Color = isTitle
+            and ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 150, 220))
+            or ColorSequence.new(Color3.fromRGB(190, 210, 255), Color3.fromRGB(120, 150, 220))
+    end
+    Label(title, 8, 13, true)
+    Label(message, 27, 11, false)
 
-    local NotchStatusText = Instance.new("TextLabel", NotchTextContainer)
-    NotchStatusText.Name = "StatusMarquee"
-    NotchStatusText.Size = UDim2.new(0, 0, 1, 0)
-    NotchStatusText.Position = UDim2.new(0, 0, 0, 0)
-    NotchStatusText.BackgroundTransparency = 1
-    NotchStatusText.Font = Enum.Font.GothamBold
-    NotchStatusText.Text = ""
-    NotchStatusText.TextSize = 11.5
-    NotchStatusText.TextXAlignment = Enum.TextXAlignment.Left
-    NotchStatusText.AutomaticSize = Enum.AutomaticSize.X
-    ApplyTextGradient(NotchStatusText)
+    local r = 0
+    local conn = RunService.RenderStepped:Connect(function() r = (r + 1.5) % 360; e.Rotation = r end)
 
- ---------
-local statusQueue = {}
-local isStatusProcessing = false
-local lastStatusText = ""
-local currentStatusTween = nil
+    table.insert(self.notifications, m)
+    self:UpdatePositions()
+
+    task.spawn(function()
+        while m and m.Parent do
+            if tick() >= m:GetAttribute("ExpireTime") then
+                for i, n in ipairs(self.notifications) do
+                    if n == m then table.remove(self.notifications, i) break end
+                end
+                self:UpdatePositions()
+                local hide = TweenService:Create(m, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.In),
+                    {Position = UDim2.new(1, 250, m.Position.Y.Scale, m.Position.Y.Offset)})
+                hide:Play()
+                hide.Completed:Connect(function() conn:Disconnect(); m:Destroy() end)
+                break
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+function Hub.Notify(title, msg, duration)
+    pcall(function() Notif:Notify(title, msg, duration or 3) end)
+end
+
+----------------------------------------------------------------
+-- DYNAMIC ISLAND NOTCH
+----------------------------------------------------------------
+local NotchFrame = Instance.new("Frame", Gui)
+NotchFrame.Name = "DynamicIslandNotch"
+NotchFrame.Size = UDim2.new(0, 200, 0, 32)
+NotchFrame.Position = UDim2.new(0.5, 0, 0, 12)
+NotchFrame.AnchorPoint = Vector2.new(0.5, 0)
+NotchFrame.BackgroundColor3 = Theme.PillBack
+NotchFrame.BackgroundTransparency = 0.1
+NotchFrame.BorderSizePixel = 0
+NotchFrame.ZIndex = 20
+Instance.new("UICorner", NotchFrame).CornerRadius = UDim.new(1, 0)
+
+local NotchStroke = Instance.new("UIStroke", NotchFrame)
+NotchStroke.Thickness = 1.5
+NotchStroke.Color = Theme.MainStroke
+local NotchStrokeGrad = Instance.new("UIGradient", NotchStroke)
+NotchStrokeGrad.Color = Theme.LoopSeq
+table.insert(UI.RotatingGradients, NotchStrokeGrad)
+
+local NotchScale = Instance.new("UIScale", NotchFrame)
+NotchScale.Scale = 1
+
+local NotchClickBtn = Instance.new("TextButton", NotchFrame)
+NotchClickBtn.Size = UDim2.new(1, 0, 1, 0)
+NotchClickBtn.BackgroundTransparency = 1
+NotchClickBtn.Text = ""
+NotchClickBtn.ZIndex = 25
+
+local CameraLens = Instance.new("Frame", NotchFrame)
+CameraLens.Size = UDim2.new(0, 11, 0, 11)
+CameraLens.Position = UDim2.new(0, 14, 0.5, 0)
+CameraLens.AnchorPoint = Vector2.new(0, 0.5)
+CameraLens.BackgroundColor3 = Color3.fromRGB(25, 20, 55)
+Instance.new("UICorner", CameraLens).CornerRadius = UDim.new(1, 0)
+
+local CameraLensCore = Instance.new("Frame", CameraLens)
+CameraLensCore.Size = UDim2.new(0, 5, 0, 5)
+CameraLensCore.Position = UDim2.new(0.5, 0, 0.5, 0)
+CameraLensCore.AnchorPoint = Vector2.new(0.5, 0.5)
+CameraLensCore.BackgroundColor3 = Color3.fromRGB(255, 95, 200)
+Instance.new("UICorner", CameraLensCore).CornerRadius = UDim.new(1, 0)
+
+local SensorDot = Instance.new("Frame", NotchFrame)
+SensorDot.Size = UDim2.new(0, 7, 0, 7)
+SensorDot.Position = UDim2.new(0, 32, 0.5, 0)
+SensorDot.AnchorPoint = Vector2.new(0, 0.5)
+SensorDot.BackgroundColor3 = Color3.fromRGB(77, 163, 255)
+Instance.new("UICorner", SensorDot).CornerRadius = UDim.new(1, 0)
+
+local NotchTextContainer = Instance.new("CanvasGroup", NotchFrame)
+NotchTextContainer.Name = "TextContainer"
+NotchTextContainer.Size = UDim2.new(1, -50, 1, 0)
+NotchTextContainer.Position = UDim2.new(0, 44, 0, 0)
+NotchTextContainer.BackgroundTransparency = 1
+
+local NotchMaskGrad = Instance.new("UIGradient", NotchTextContainer)
+NotchMaskGrad.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0),
+    NumberSequenceKeypoint.new(0.85, 0), NumberSequenceKeypoint.new(1, 1),
+})
+
+local DefaultStatusLabel = Instance.new("TextLabel", NotchTextContainer)
+DefaultStatusLabel.Name = "DefaultStatus"
+DefaultStatusLabel.Size = UDim2.new(1, 0, 1, 0)
+DefaultStatusLabel.Position = UDim2.new(0, -17.5, 0, 0)
+DefaultStatusLabel.BackgroundTransparency = 1
+DefaultStatusLabel.Font = Enum.Font.GothamBold
+DefaultStatusLabel.Text = "Merciful Hub"
+DefaultStatusLabel.TextSize = 14
+DefaultStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+DefaultStatusLabel.TextYAlignment = Enum.TextYAlignment.Center
+ApplyTextGradient(DefaultStatusLabel)
+
+local NotchStatusText = Instance.new("TextLabel", NotchTextContainer)
+NotchStatusText.Name = "StatusMarquee"
+NotchStatusText.Size = UDim2.new(0, 0, 1, 0)
+NotchStatusText.BackgroundTransparency = 1
+NotchStatusText.Font = Enum.Font.GothamBold
+NotchStatusText.Text = ""
+NotchStatusText.TextSize = 11.5
+NotchStatusText.TextXAlignment = Enum.TextXAlignment.Left
+NotchStatusText.AutomaticSize = Enum.AutomaticSize.X
+ApplyTextGradient(NotchStatusText)
+
+----------------------------------------------------------------
+-- STATUS MARQUEE QUEUE
+----------------------------------------------------------------
+local statusQueue, isStatusProcessing, lastStatusText, currentStatusTween = {}, false, "", nil
 
 local function ProcessStatusQueue()
     if isStatusProcessing then return end
     isStatusProcessing = true
-
     local defaultStroke = DefaultStatusLabel:FindFirstChildOfClass("UIStroke")
 
     while #statusQueue > 0 do
-        local nextItem = table.remove(statusQueue, 1)
-        local statusText = nextItem.text
-        local duration = nextItem.duration
-
+        local item = table.remove(statusQueue, 1)
         NotchStatusText.Position = UDim2.new(2, 0, 0, 0)
         NotchStatusText.Text = ""
 
-        local fadeOutText = TweenService:Create(
-            DefaultStatusLabel,
-            TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
-            {TextTransparency = 1}
-        )
-        fadeOutText:Play()
-
-        if defaultStroke then
-            TweenService:Create(
-                defaultStroke,
-                TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
-                {Transparency = 1}
-            ):Play()
-        end
-
-        fadeOutText.Completed:Wait()
+        local fadeOut = TweenService:Create(DefaultStatusLabel, TweenInfo.new(0.3, Enum.EasingStyle.Sine), {TextTransparency = 1})
+        fadeOut:Play()
+        if defaultStroke then TweenService:Create(defaultStroke, TweenInfo.new(0.3, Enum.EasingStyle.Sine), {Transparency = 1}):Play() end
+        fadeOut.Completed:Wait()
         DefaultStatusLabel.Visible = false
 
-        NotchStatusText.Text = tostring(statusText)
+        NotchStatusText.Text = tostring(item.text)
         task.wait()
-
         local textWidth = NotchStatusText.AbsoluteSize.X
         local containerWidth = NotchTextContainer.AbsoluteSize.X
-        
         local targetOffset = -(textWidth + 150)
-        
         local totalDistance = containerWidth + math.abs(targetOffset)
-        local scrollSpeed = 50 -- Tốc độ chữ chạy mượt mà, êm ái (càng nhỏ càng chậm)
-        local scrollTime = (type(duration) == "number" and duration > 0) and duration or (totalDistance / scrollSpeed)
+        local scrollTime = (type(item.duration) == "number" and item.duration > 0) and item.duration or (totalDistance / 50)
 
         NotchStatusText.Position = UDim2.new(0, containerWidth + 10, 0, 0)
-
-        currentStatusTween = TweenService:Create(
-            NotchStatusText,
-            TweenInfo.new(scrollTime, Enum.EasingStyle.Linear),
-            {Position = UDim2.new(0, targetOffset, 0, 0)}
-        )
+        currentStatusTween = TweenService:Create(NotchStatusText, TweenInfo.new(scrollTime, Enum.EasingStyle.Linear),
+            {Position = UDim2.new(0, targetOffset, 0, 0)})
         currentStatusTween:Play()
         currentStatusTween.Completed:Wait()
-        currentStatusTween = nil 
+        currentStatusTween = nil
 
         NotchStatusText.Text = ""
         NotchStatusText.Position = UDim2.new(0, 0, 0, 0)
-
         DefaultStatusLabel.Visible = true
         DefaultStatusLabel.TextTransparency = 1
         if defaultStroke then defaultStroke.Transparency = 1 end
-
-        local fadeInText = TweenService:Create(
-            DefaultStatusLabel,
-            TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
-            {TextTransparency = 0}
-        )
-        fadeInText:Play()
-
-        if defaultStroke then
-            TweenService:Create(
-                defaultStroke,
-                TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
-                {Transparency = 0}
-            ):Play()
-        end
-
-        fadeInText.Completed:Wait()
+        local fadeIn = TweenService:Create(DefaultStatusLabel, TweenInfo.new(0.35, Enum.EasingStyle.Sine), {TextTransparency = 0})
+        fadeIn:Play()
+        if defaultStroke then TweenService:Create(defaultStroke, TweenInfo.new(0.35, Enum.EasingStyle.Sine), {Transparency = 0}):Play() end
+        fadeIn.Completed:Wait()
     end
 
     isStatusProcessing = false
@@ -5182,517 +4939,423 @@ local function ProcessStatusQueue()
 end
 
 local function SetStatus(statusText, duration)
-    local textStr = tostring(statusText)
-    
-    if textStr == "" then return end
-    
-    local isTargetStr = string.sub(textStr, 1, 7) == "Target:"
-    local wasLastTarget = string.sub(lastStatusText, 1, 7) == "Target:"
-
-    if isTargetStr and wasLastTarget then
-        if isStatusProcessing and currentStatusTween then
-            if NotchStatusText and string.sub(NotchStatusText.Text, 1, 7) == "Target:" then
-                NotchStatusText.Text = textStr
-            end
+    local s = tostring(statusText)
+    if s == "" then return end
+    local isTarget = string.sub(s, 1, 7) == "Target:"
+    local wasTarget = string.sub(lastStatusText, 1, 7) == "Target:"
+    if isTarget and wasTarget then
+        if isStatusProcessing and currentStatusTween and string.sub(NotchStatusText.Text, 1, 7) == "Target:" then
+            NotchStatusText.Text = s
         end
-        return 
+        return
     end
-    
-    if textStr == lastStatusText then return end
-    for _, item in ipairs(statusQueue) do
-        if item.text == textStr then
-            return
-        end
-    end
-
-    lastStatusText = textStr
-    table.insert(statusQueue, {text = textStr, duration = duration})
-    
-    if not isStatusProcessing then
-        task.spawn(ProcessStatusQueue)
-    end
+    if s == lastStatusText then return end
+    for _, it in ipairs(statusQueue) do if it.text == s then return end end
+    lastStatusText = s
+    table.insert(statusQueue, {text = s, duration = duration})
+    if not isStatusProcessing then task.spawn(ProcessStatusQueue) end
 end
----------
----------
 
-    local HologramEmitters = Instance.new("Frame", BountyGui)
-    HologramEmitters.Name = "HologramEmitters"
-    HologramEmitters.Size = UDim2.new(1, 0, 1, 0)
-    HologramEmitters.BackgroundTransparency = 1
-    HologramEmitters.ZIndex = 5
+----------------------------------------------------------------
+-- HOLOGRAM EMITTERS (light rays + projector ring)
+----------------------------------------------------------------
+local HologramEmitters = Instance.new("Frame", Gui)
+HologramEmitters.Name = "HologramEmitters"
+HologramEmitters.Size = UDim2.new(1, 0, 1, 0)
+HologramEmitters.BackgroundTransparency = 1
+HologramEmitters.ZIndex = 5
 
-    local function CreateLightRay(anchorOffset, angleDeg, baseWidth)
-        local RayFrame = Instance.new("Frame", HologramEmitters)
-        RayFrame.Name = "LightRay"
-        RayFrame.AnchorPoint = Vector2.new(0.5, 0)
-        RayFrame.Position = UDim2.new(0.5, anchorOffset, 0, 44)
-        RayFrame.Size = UDim2.new(0, baseWidth, 0, 0)
-        RayFrame.BackgroundColor3 = Themes[CurrentTheme].HoloBeam
-        RayFrame.BackgroundTransparency = 1
-        RayFrame.BorderSizePixel = 0
-        RayFrame.Rotation = angleDeg
-
-        local RayGrad = Instance.new("UIGradient", RayFrame)
-        RayGrad.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.2),
-            NumberSequenceKeypoint.new(0.4, 0.6),
-            NumberSequenceKeypoint.new(0.85, 0.9),
-            NumberSequenceKeypoint.new(1, 1)
-        })
-        RayGrad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromHex("#FFFFFF")),
-            ColorSequenceKeypoint.new(0.5, Themes[CurrentTheme].HoloBeam),
-            ColorSequenceKeypoint.new(1, Color3.fromHex("#54626F"))
-        })
-        RayGrad.Rotation = 90
-        return RayFrame
-    end
-
-    local CenterRay = CreateLightRay(0, 0, 220)
-    local LeftRay = CreateLightRay(-50, -18, 140)
-    local RightRay = CreateLightRay(50, 18, 140)
-
-    local HoloProjectorRing = Instance.new("Frame", HologramEmitters)
-    HoloProjectorRing.Name = "ProjectorRing"
-    HoloProjectorRing.AnchorPoint = Vector2.new(0.5, 0.5)
-    HoloProjectorRing.Position = UDim2.new(0.5, 0, 0, 44)
-    HoloProjectorRing.Size = UDim2.new(0, 0, 0, 0)
-    HoloProjectorRing.BackgroundTransparency = 1
-
-    local RingStroke = Instance.new("UIStroke", HoloProjectorRing)
-    RingStroke.Color = Color3.fromHex("#FFFFFF")
-    RingStroke.Thickness = 2
-    RingStroke.Transparency = 1
-    Instance.new("UICorner", HoloProjectorRing).CornerRadius = UDim.new(1, 0)
-
-    local HoloWindow = Instance.new("CanvasGroup", BountyGui)
-    HoloWindow.Name = "HoloBountyWindow"
-    HoloWindow.Size = UDim2.new(0, 360, 0, 280)
-    HoloWindow.Position = UDim2.new(0.5, 0, 0, 68)
-    HoloWindow.AnchorPoint = Vector2.new(0.5, 0)
-    HoloWindow.BackgroundColor3 = Themes[CurrentTheme].MainBg
-    HoloWindow.BackgroundTransparency = Themes[CurrentTheme].MainBgTrans
-    HoloWindow.BorderSizePixel = 0
-    HoloWindow.GroupTransparency = 1
-    HoloWindow.Visible = false
-    HoloWindow.ZIndex = 15
-    Instance.new("UICorner", HoloWindow).CornerRadius = UDim.new(0, 14)
-
-    local WindowScale = Instance.new("UIScale", HoloWindow)
-    WindowScale.Scale = 0.7
-
-    local HoloWindowStroke = Instance.new("UIStroke", HoloWindow)
-    HoloWindowStroke.Thickness = 1.5
-    HoloWindowStroke.Color = Themes[CurrentTheme].MainStroke
-
-    local HoloWindowStrokeGrad = Instance.new("UIGradient", HoloWindowStroke)
-    HoloWindowStrokeGrad.Color = Themes[CurrentTheme].LoopSeq
-    HoloWindowStrokeGrad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 1),
-        NumberSequenceKeypoint.new(0.15, 0.4),
-        NumberSequenceKeypoint.new(0.5, 0),
-        NumberSequenceKeypoint.new(0.85, 0.4),
-        NumberSequenceKeypoint.new(1, 1)
+local function CreateLightRay(anchorOffset, angleDeg, baseWidth, tint)
+    local Ray = Instance.new("Frame", HologramEmitters)
+    Ray.Name = "LightRay"
+    Ray.AnchorPoint = Vector2.new(0.5, 0)
+    Ray.Position = UDim2.new(0.5, anchorOffset, 0, 44)
+    Ray.Size = UDim2.new(0, baseWidth, 0, 0)
+    Ray.BackgroundColor3 = tint
+    Ray.BackgroundTransparency = 1
+    Ray.BorderSizePixel = 0
+    Ray.Rotation = angleDeg
+    local g = Instance.new("UIGradient", Ray)
+    g.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.4, 0.6),
+        NumberSequenceKeypoint.new(0.85, 0.9), NumberSequenceKeypoint.new(1, 1),
     })
-    table.insert(UI_Elements.RotatingGradients, HoloWindowStrokeGrad)
-
-    local ScanlineEffect = Instance.new("Frame", HoloWindow)
-    ScanlineEffect.Name = "Scanline"
-    ScanlineEffect.Size = UDim2.new(1, 0, 0, 2)
-    ScanlineEffect.Position = UDim2.new(0, 0, 0, 0)
-    ScanlineEffect.BackgroundColor3 = Color3.fromHex("#FFFFFF")
-    ScanlineEffect.BackgroundTransparency = 0.7
-    ScanlineEffect.BorderSizePixel = 0
-    ScanlineEffect.ZIndex = 20
-
-    local ScanlineGrad = Instance.new("UIGradient", ScanlineEffect)
-    ScanlineGrad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 1),
-        NumberSequenceKeypoint.new(0.5, 0.2),
-        NumberSequenceKeypoint.new(1, 1)
+    g.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromHex("#FFFFFF")),
+        ColorSequenceKeypoint.new(0.5, tint),
+        ColorSequenceKeypoint.new(1, Color3.fromHex("#2A2260")),
     })
+    g.Rotation = 90
+    return Ray
+end
 
-    local Header = Instance.new("Frame", HoloWindow)
-    Header.Name = "Header"
-    Header.Size = UDim2.new(1, 0, 0, 42)
-    Header.BackgroundTransparency = 1
+local CenterRay = CreateLightRay(0, 0, 220, Theme.HoloBeam)
+local LeftRay   = CreateLightRay(-50, -18, 140, PINK)
+local RightRay  = CreateLightRay(50, 18, 140, PINK)
 
-    local HeaderTitle = Instance.new("TextLabel", Header)
-    HeaderTitle.Size = UDim2.new(0, 200, 1, 0)
-    HeaderTitle.Position = UDim2.new(0, 14, 0, 0)
-    HeaderTitle.BackgroundTransparency = 1
-    HeaderTitle.Font = Enum.Font.GothamBold
-    HeaderTitle.Text = "BOUNTY STATS"
-    HeaderTitle.TextSize = 13
-    HeaderTitle.TextXAlignment = Enum.TextXAlignment.Left
-    ApplyTextGradient(HeaderTitle)
+local HoloProjectorRing = Instance.new("Frame", HologramEmitters)
+HoloProjectorRing.Name = "ProjectorRing"
+HoloProjectorRing.AnchorPoint = Vector2.new(0.5, 0.5)
+HoloProjectorRing.Position = UDim2.new(0.5, 0, 0, 44)
+HoloProjectorRing.Size = UDim2.new(0, 0, 0, 0)
+HoloProjectorRing.BackgroundTransparency = 1
+local RingStroke = Instance.new("UIStroke", HoloProjectorRing)
+RingStroke.Color = PINK
+RingStroke.Thickness = 2
+RingStroke.Transparency = 1
+Instance.new("UICorner", HoloProjectorRing).CornerRadius = UDim.new(1, 0)
 
-    local TargetBadge = Instance.new("Frame", Header)
-    TargetBadge.Size = UDim2.new(0, 100, 0, 22)
-    TargetBadge.Position = UDim2.new(1, -112, 0.5, 0)
-    TargetBadge.AnchorPoint = Vector2.new(0, 0.5)
-    TargetBadge.BackgroundColor3 = Themes[CurrentTheme].ContainerBg
-    TargetBadge.BackgroundTransparency = Themes[CurrentTheme].ContainerTrans
-    Instance.new("UICorner", TargetBadge).CornerRadius = UDim.new(0, 6)
+----------------------------------------------------------------
+-- HOLO WINDOW
+----------------------------------------------------------------
+local HoloWindow = Instance.new("CanvasGroup", Gui)
+HoloWindow.Name = "HoloBountyWindow"
+HoloWindow.Size = UDim2.new(0, 360, 0, 280)
+HoloWindow.Position = UDim2.new(0.5, 0, 0, 68)
+HoloWindow.AnchorPoint = Vector2.new(0.5, 0)
+HoloWindow.BackgroundColor3 = Theme.MainBg
+HoloWindow.BackgroundTransparency = Theme.MainBgTrans
+HoloWindow.BorderSizePixel = 0
+HoloWindow.GroupTransparency = 1
+HoloWindow.Visible = false
+HoloWindow.ZIndex = 15
+Instance.new("UICorner", HoloWindow).CornerRadius = UDim.new(0, 14)
 
-    local TargetBadgeStroke = Instance.new("UIStroke", TargetBadge)
-    TargetBadgeStroke.Color = Themes[CurrentTheme].RowStroke
-    TargetBadgeStroke.Thickness = 1
-    local TargetBadgeGrad = Instance.new("UIGradient", TargetBadgeStroke)
-    TargetBadgeGrad.Color = Themes[CurrentTheme].RowStrokeGrad
-    table.insert(UI_Elements.RowStrokeGradients, TargetBadgeGrad)
+local WindowScale = Instance.new("UIScale", HoloWindow)
+WindowScale.Scale = 0.7
 
-    local TargetBadgeText = Instance.new("TextLabel", TargetBadge)
-    TargetBadgeText.Size = UDim2.new(1, 0, 1, 0)
-    TargetBadgeText.BackgroundTransparency = 1
-    TargetBadgeText.Font = Enum.Font.GothamBold
-    TargetBadgeText.Text = "LIVE TRACKING"
-    TargetBadgeText.TextSize = 9.5
-    ApplyTextGradient(TargetBadgeText)
+local HoloWindowStroke = Instance.new("UIStroke", HoloWindow)
+HoloWindowStroke.Thickness = 1.5
+HoloWindowStroke.Color = Theme.MainStroke
+local HoloWindowStrokeGrad = Instance.new("UIGradient", HoloWindowStroke)
+HoloWindowStrokeGrad.Color = Theme.LoopSeq
+HoloWindowStrokeGrad.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0.4),
+    NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(0.85, 0.4),
+    NumberSequenceKeypoint.new(1, 1),
+})
+table.insert(UI.RotatingGradients, HoloWindowStrokeGrad)
 
-    local HeaderDiv = Instance.new("Frame", HoloWindow)
-    HeaderDiv.Name = "HeaderDiv"
-    HeaderDiv.Size = UDim2.new(1, -20, 0, 1)
-    HeaderDiv.Position = UDim2.new(0, 10, 0, 42)
-    HeaderDiv.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    HeaderDiv.BorderSizePixel = 0
+local Scanline = Instance.new("Frame", HoloWindow)
+Scanline.Name = "Scanline"
+Scanline.Size = UDim2.new(1, 0, 0, 2)
+Scanline.BackgroundColor3 = BLUE
+Scanline.BackgroundTransparency = 0.6
+Scanline.BorderSizePixel = 0
+Scanline.ZIndex = 20
+local ScanGrad = Instance.new("UIGradient", Scanline)
+ScanGrad.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.2), NumberSequenceKeypoint.new(1, 1),
+})
 
-    local HeaderDivGrad = Instance.new("UIGradient", HeaderDiv)
-    HeaderDivGrad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 1),
-        NumberSequenceKeypoint.new(0.5, 0.4),
-        NumberSequenceKeypoint.new(1, 1)
-    })
+local Header = Instance.new("Frame", HoloWindow)
+Header.Name = "Header"
+Header.Size = UDim2.new(1, 0, 0, 42)
+Header.BackgroundTransparency = 1
 
-    local ContentScroll = Instance.new("ScrollingFrame", HoloWindow)
-    ContentScroll.Name = "Content"
-    ContentScroll.Size = UDim2.new(1, -20, 1, -48)
-    ContentScroll.Position = UDim2.new(0, 10, 0, 44)
-    ContentScroll.BackgroundTransparency = 1
-    ContentScroll.BorderSizePixel = 0
-    ContentScroll.ScrollBarThickness = 0
-    ContentScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local HeaderTitle = Instance.new("TextLabel", Header)
+HeaderTitle.Size = UDim2.new(0, 200, 1, 0)
+HeaderTitle.Position = UDim2.new(0, 14, 0, 0)
+HeaderTitle.BackgroundTransparency = 1
+HeaderTitle.Font = Enum.Font.GothamBold
+HeaderTitle.Text = "BOUNTY STATS"
+HeaderTitle.TextSize = 13
+HeaderTitle.TextXAlignment = Enum.TextXAlignment.Left
+ApplyTextGradient(HeaderTitle)
 
-    local ContentPadding = Instance.new("UIPadding", ContentScroll)
-    ContentPadding.PaddingTop = UDim.new(0, 4)
-    ContentPadding.PaddingBottom = UDim.new(0, 6)
+local TargetBadge = Instance.new("Frame", Header)
+TargetBadge.Size = UDim2.new(0, 100, 0, 22)
+TargetBadge.Position = UDim2.new(1, -112, 0.5, 0)
+TargetBadge.AnchorPoint = Vector2.new(0, 0.5)
+TargetBadge.BackgroundColor3 = Theme.ContainerBg
+TargetBadge.BackgroundTransparency = Theme.ContainerTrans
+Instance.new("UICorner", TargetBadge).CornerRadius = UDim.new(0, 6)
+local TBStroke = Instance.new("UIStroke", TargetBadge)
+TBStroke.Color = Theme.RowStroke
+TBStroke.Thickness = 1
+local TBGrad = Instance.new("UIGradient", TBStroke)
+TBGrad.Color = Theme.RowStrokeGrad
+table.insert(UI.RowStrokeGradients, TBGrad)
 
-    local ContentLayout = Instance.new("UIListLayout", ContentScroll)
-    ContentLayout.Padding = UDim.new(0, 9)
-    ContentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    ContentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+local TBText = Instance.new("TextLabel", TargetBadge)
+TBText.Size = UDim2.new(1, 0, 1, 0)
+TBText.BackgroundTransparency = 1
+TBText.Font = Enum.Font.GothamBold
+TBText.Text = "LIVE TRACKING"
+TBText.TextSize = 9.5
+ApplyTextGradient(TBText)
 
-    local function CreateStatRow(parent, titleText, defaultVal, layoutOrder)
-        local Row = Instance.new("Frame", parent)
-        Row.Size = UDim2.new(1, -4, 0, 34)
-        Row.BackgroundColor3 = Themes[CurrentTheme].ContainerBg
-        Row.BackgroundTransparency = Themes[CurrentTheme].ContainerTrans
-        Row.LayoutOrder = layoutOrder
-        Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 6)
-        table.insert(UI_Elements.Containers, Row)
+local HeaderDiv = Instance.new("Frame", HoloWindow)
+HeaderDiv.Name = "HeaderDiv"
+HeaderDiv.Size = UDim2.new(1, -20, 0, 1)
+HeaderDiv.Position = UDim2.new(0, 10, 0, 42)
+HeaderDiv.BackgroundColor3 = PINK
+HeaderDiv.BorderSizePixel = 0
+local HDGrad = Instance.new("UIGradient", HeaderDiv)
+HDGrad.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.3), NumberSequenceKeypoint.new(1, 1),
+})
 
-        local RowStroke = Instance.new("UIStroke", Row)
-        RowStroke.Color = Themes[CurrentTheme].RowStroke
-        RowStroke.Thickness = 1.2
-        table.insert(UI_Elements.RowStrokes, RowStroke)
+local ContentScroll = Instance.new("ScrollingFrame", HoloWindow)
+ContentScroll.Name = "Content"
+ContentScroll.Size = UDim2.new(1, -20, 1, -48)
+ContentScroll.Position = UDim2.new(0, 10, 0, 44)
+ContentScroll.BackgroundTransparency = 1
+ContentScroll.BorderSizePixel = 0
+ContentScroll.ScrollBarThickness = 0
+ContentScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local CP = Instance.new("UIPadding", ContentScroll)
+CP.PaddingTop = UDim.new(0, 4)
+CP.PaddingBottom = UDim.new(0, 6)
+local CL = Instance.new("UIListLayout", ContentScroll)
+CL.Padding = UDim.new(0, 9)
+CL.HorizontalAlignment = Enum.HorizontalAlignment.Center
+CL.SortOrder = Enum.SortOrder.LayoutOrder
 
-        local RowStrokeGrad = Instance.new("UIGradient", RowStroke)
-        RowStrokeGrad.Color = Themes[CurrentTheme].RowStrokeGrad
-        table.insert(UI_Elements.RowStrokeGradients, RowStrokeGrad)
-        table.insert(UI_Elements.AnimatedGradients, RowStrokeGrad)
+local function CreateStatRow(parent, titleText, defaultVal, order)
+    local Row = Instance.new("Frame", parent)
+    Row.Size = UDim2.new(1, -4, 0, 34)
+    Row.BackgroundColor3 = Theme.ContainerBg
+    Row.BackgroundTransparency = Theme.ContainerTrans
+    Row.LayoutOrder = order
+    Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 6)
 
-        local TitleLbl = Instance.new("TextLabel", Row)
-        TitleLbl.Size = UDim2.new(0.5, -5, 1, 0)
-        TitleLbl.Position = UDim2.new(0, 12, 0, 0)
-        TitleLbl.BackgroundTransparency = 1
-        TitleLbl.Font = Enum.Font.GothamBold
-        TitleLbl.Text = titleText
-        TitleLbl.TextColor3 = Themes[CurrentTheme].DescTextColor
-        TitleLbl.TextSize = 11
-        TitleLbl.TextXAlignment = Enum.TextXAlignment.Left
-        table.insert(UI_Elements.Descriptions, TitleLbl)
+    local RS = Instance.new("UIStroke", Row)
+    RS.Color = Theme.RowStroke
+    RS.Thickness = 1.2
+    local RG = Instance.new("UIGradient", RS)
+    RG.Color = Theme.RowStrokeGrad
+    table.insert(UI.RowStrokeGradients, RG)
+    table.insert(UI.AnimatedGradients, RG)
 
-        local ValLbl = Instance.new("TextLabel", Row)
-        ValLbl.Size = UDim2.new(0.5, -15, 1, 0)
-        ValLbl.Position = UDim2.new(0.5, 5, 0, 0)
-        ValLbl.BackgroundTransparency = 1
-        ValLbl.Font = Enum.Font.GothamBold
-        ValLbl.Text = defaultVal
-        ValLbl.TextSize = 12
-        ValLbl.TextXAlignment = Enum.TextXAlignment.Right
-        ApplyTextGradient(ValLbl)
+    local T = Instance.new("TextLabel", Row)
+    T.Size = UDim2.new(0.5, -5, 1, 0)
+    T.Position = UDim2.new(0, 12, 0, 0)
+    T.BackgroundTransparency = 1
+    T.Font = Enum.Font.GothamBold
+    T.Text = titleText
+    T.TextColor3 = Theme.DescTextColor
+    T.TextSize = 11
+    T.TextXAlignment = Enum.TextXAlignment.Left
 
-        return {
-            Row = Row,
-            Value = ValLbl
-        }
-    end
+    local V = Instance.new("TextLabel", Row)
+    V.Size = UDim2.new(0.5, -15, 1, 0)
+    V.Position = UDim2.new(0.5, 5, 0, 0)
+    V.BackgroundTransparency = 1
+    V.Font = Enum.Font.GothamBold
+    V.Text = defaultVal
+    V.TextSize = 12
+    V.TextXAlignment = Enum.TextXAlignment.Right
+    ApplyTextGradient(V)
+    return V
+end
 
-    local CurrentBountyRow = CreateStatRow(ContentScroll, "Current Bounty", "0", 1)
-    local BountyEarnedRow = CreateStatRow(ContentScroll, "Bounty Earned", "+0", 2)
-    local BountyPerHourRow = CreateStatRow(ContentScroll, "Bounty Per Hour", "0 / hr", 3)
-    local TotalKillRow = CreateStatRow(ContentScroll, "Total Kill", "0", 4)
-    local TotalEarnedRow = CreateStatRow(ContentScroll, "Total Earned", "0", 5)
+local ValueLabels = {
+    ["Current Bounty"] = CreateStatRow(ContentScroll, "Current Bounty", "0", 1),
+    ["Bounty Earned"]  = CreateStatRow(ContentScroll, "Bounty Earned", "+0", 2),
+    ["Bounty Per Hour"] = CreateStatRow(ContentScroll, "Bounty Per Hour", "0 / hr", 3),
+    ["Total Kill"]     = CreateStatRow(ContentScroll, "Total Kill", "0", 4),
+    ["Total Earned"]   = CreateStatRow(ContentScroll, "Total Earned", "0", 5),
+}
 
-    local ValueLabels = {
-        ["Current Bounty"] = CurrentBountyRow.Value,
-        ["Bounty Earned"] = BountyEarnedRow.Value,
-        ["Bounty Per Hour"] = BountyPerHourRow.Value,
-        ["Total Kill"] = TotalKillRow.Value,
-        ["Total Earned"] = TotalEarnedRow.Value
-    }
+----------------------------------------------------------------
+-- OPEN / CLOSE ANIMATION
+----------------------------------------------------------------
+local isOpen, isAnimating = false, false
 
-    local isOpen = false
-    local isAnimating = false
+local function ToggleHologramUI()
+    if isAnimating then return end
+    isAnimating = true
+    isOpen = not isOpen
 
-    local function ToggleHologramUI()
-        if isAnimating then return end
-        isAnimating = true
-        isOpen = not isOpen
+    if isOpen then
+        HoloWindow.Visible = true
+        TweenService:Create(NotchFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 260, 0, 36)}):Play()
 
-        if isOpen then
-            HoloWindow.Visible = true
-            
-            local notchExpand = TweenService:Create(NotchFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, 260, 0, 36)
-            })
-            notchExpand:Play()
+        HoloProjectorRing.Size = UDim2.new(0, 10, 0, 10)
+        RingStroke.Transparency = 0.2
+        TweenService:Create(HoloProjectorRing, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 160, 0, 28)}):Play()
 
-            HoloProjectorRing.Size = UDim2.new(0, 10, 0, 10)
-            RingStroke.Transparency = 0.2
-            local ringTween = TweenService:Create(HoloProjectorRing, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, 160, 0, 28)
-            })
-            ringTween:Play()
+        CenterRay.Size = UDim2.new(0, 240, 0, 0)
+        LeftRay.Size = UDim2.new(0, 150, 0, 0)
+        RightRay.Size = UDim2.new(0, 150, 0, 0)
+        CenterRay.BackgroundTransparency = 0.4
+        LeftRay.BackgroundTransparency = 0.5
+        RightRay.BackgroundTransparency = 0.5
 
-            CenterRay.Size = UDim2.new(0, 240, 0, 0)
-            LeftRay.Size = UDim2.new(0, 150, 0, 0)
-            RightRay.Size = UDim2.new(0, 150, 0, 0)
-            
-            CenterRay.BackgroundTransparency = 0.4
-            LeftRay.BackgroundTransparency = 0.5
-            RightRay.BackgroundTransparency = 0.5
+        TweenService:Create(CenterRay, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 300, 0, 240), BackgroundTransparency = 0.8}):Play()
+        TweenService:Create(LeftRay, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 160, 0, 250), BackgroundTransparency = 0.85}):Play()
+        TweenService:Create(RightRay, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 160, 0, 250), BackgroundTransparency = 0.85}):Play()
 
-            local rayTween1 = TweenService:Create(CenterRay, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, 300, 0, 240),
-                BackgroundTransparency = 0.8
-            })
-            local rayTween2 = TweenService:Create(LeftRay, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, 160, 0, 250),
-                BackgroundTransparency = 0.85
-            })
-            local rayTween3 = TweenService:Create(RightRay, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, 160, 0, 250),
-                BackgroundTransparency = 0.85
-            })
+        HoloWindow.Position = UDim2.new(0.5, 0, 0, 48)
+        HoloWindow.GroupTransparency = 1
+        WindowScale.Scale = 0.65
 
-            rayTween1:Play()
-            rayTween2:Play()
-            rayTween3:Play()
-
-            HoloWindow.Position = UDim2.new(0.5, 0, 0, 48)
-            HoloWindow.GroupTransparency = 1
-            WindowScale.Scale = 0.65
-
-            task.delay(0.12, function()
-                TweenService:Create(HoloWindow, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                    Position = UDim2.new(0.5, 0, 0, 68),
-                    GroupTransparency = 0
-                }):Play()
-                TweenService:Create(WindowScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                    Scale = 1
-                }):Play()
-            end)
-
-            task.delay(0.5, function()
-                isAnimating = false
-            end)
-        else
-            local notchShrink = TweenService:Create(NotchFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, 200, 0, 32)
-            })
-            notchShrink:Play()
-
-            TweenService:Create(HoloProjectorRing, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {
-                Size = UDim2.new(0, 0, 0, 0)
-            }):Play()
-
-            TweenService:Create(CenterRay, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {
-                Size = UDim2.new(0, 0, 0, 0),
-                BackgroundTransparency = 1
-            }):Play()
-            TweenService:Create(LeftRay, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {
-                Size = UDim2.new(0, 0, 0, 0),
-                BackgroundTransparency = 1
-            }):Play()
-            TweenService:Create(RightRay, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {
-                Size = UDim2.new(0, 0, 0, 0),
-                BackgroundTransparency = 1
-            }):Play()
-
-            local closeTween = TweenService:Create(HoloWindow, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-                Position = UDim2.new(0.5, 0, 0, 48),
-                GroupTransparency = 1
-            })
-            TweenService:Create(WindowScale, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-                Scale = 0.65
-            }):Play()
-
-            closeTween:Play()
-            closeTween.Completed:Connect(function()
-                if not isOpen then
-                    HoloWindow.Visible = false
-                end
-                isAnimating = false
-            end)
-        end
-    end
-
-    local clickCount = 0
-    local lastClickTime = 0
-
-    NotchClickBtn.MouseButton1Click:Connect(function()
-        TweenService:Create(NotchScale, TweenInfo.new(0.1, Enum.EasingStyle.Sine), {Scale = 0.9}):Play()
-        task.delay(0.1, function()
-            TweenService:Create(NotchScale, TweenInfo.new(0.25, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {Scale = 1}):Play()
+        task.delay(0.12, function()
+            TweenService:Create(HoloWindow, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+                {Position = UDim2.new(0.5, 0, 0, 68), GroupTransparency = 0}):Play()
+            TweenService:Create(WindowScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
         end)
-
-        local currentTime = tick()
-        if currentTime - lastClickTime > 0.4 then
-            clickCount = 0
+        task.delay(0.5, function() isAnimating = false end)
+    else
+        TweenService:Create(NotchFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 200, 0, 32)}):Play()
+        TweenService:Create(HoloProjectorRing, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {Size = UDim2.new(0, 0, 0, 0)}):Play()
+        for _, r in ipairs({CenterRay, LeftRay, RightRay}) do
+            TweenService:Create(r, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {Size = UDim2.new(0, 0, 0, 0), BackgroundTransparency = 1}):Play()
         end
-        clickCount = clickCount + 1
-        lastClickTime = currentTime
-
-        task.delay(0.4, function()
-            if clickCount == 1 and tick() - lastClickTime >= 0.4 then
-                ToggleHologramUI()
-                clickCount = 0
-            elseif clickCount == 2 and tick() - lastClickTime >= 0.4 then
-                if currentTarget then
-                    Blacklist[currentTarget.Name] = true
-                end
-                pickNewTarget("manual skip from notch")
-                notify("Auto Bounty", "Player Skipped!", 2)
-                clickCount = 0
-            elseif clickCount >= 3 then
-                stopAll()
-                notify("Auto Bounty", "Script Stopped!", 2)
-                stopAll()
-                clickCount = 0
-            end
-        end)
-    end)
-
-    local rot = 0
-    RunService.RenderStepped:Connect(function(dt)
-        rot = (rot + 1.5) % 360
-        
-        for _, grad in pairs(UI_Elements.RotatingGradients) do
-            if grad and grad.Parent then
-                grad.Rotation = rot
-                grad.Color = Themes[CurrentTheme].LoopSeq
-            end
-        end
-
-        local animatedOffset = Vector2.new(math.sin(tick() * 2) * 0.4, 0)
-        for _, grad in pairs(UI_Elements.AnimatedGradients) do
-            if grad and grad.Parent then
-                grad.Offset = animatedOffset
-            end
-        end
-        for _, grad in pairs(UI_Elements.RowStrokeGradients) do
-            if grad and grad.Parent then
-                grad.Offset = animatedOffset
-            end
-        end
-
-        if isOpen and HoloWindow.Visible then
-            local scanY = (tick() * 0.4) % 1
-            ScanlineEffect.Position = UDim2.new(0, 0, scanY, 0)
-
-            local pulse = (math.sin(tick() * 4) + 1) / 2
-            CenterRay.BackgroundTransparency = 0.8 + (pulse * 0.1)
-            LeftRay.BackgroundTransparency = 0.85 + (pulse * 0.1)
-            RightRay.BackgroundTransparency = 0.85 + (pulse * 0.1)
-        end
-    end)
-
-    getgenv().DynamicBounty_API = {
-        Toggle = ToggleHologramUI,
-        SetStatus = SetStatus,
-        UpdateStat = function(key, val)
-            if ValueLabels[key] then
-                ValueLabels[key].Text = tostring(val)
-            end
-        end
-    }
-
-    local startBountyTime = tick()
-    local startBountyVal = getBounty(LocalPlayer) or 0
-
-    task.spawn(function()
-        while task.wait() do
-            pcall(function()
-                if getgenv().DynamicBounty_API then
-                    local currentBountyVal = getBounty(LocalPlayer) or 0
-                    
-                    local formattedCurrent = tostring(currentBountyVal):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
-                    getgenv().DynamicBounty_API.UpdateStat("Current Bounty", formattedCurrent)
-                    
-                    local formattedEarned = tostring(sessionBountyEarned):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
-                    getgenv().DynamicBounty_API.UpdateStat("Bounty Earned", "+" .. formattedEarned)
-                    
-                    local formattedTotalEarned = tostring(totalBountyEarned):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
-                    getgenv().DynamicBounty_API.UpdateStat("Total Earned", formattedTotalEarned)
-                    
-                    getgenv().DynamicBounty_API.UpdateStat("Total Kill", tostring(allTimeKills))
-                    
-
-                    local totalSeconds = totalTimeElapsed + math.floor(os.time() - bsStartTime)
-                    local bph = 0
-                    if totalSeconds > 0 and totalBountyEarned > 0 then
-                        bph = math.floor((totalBountyEarned / totalSeconds) * 3600)
-                    end
-                    local formattedBPH = tostring(bph):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
-                    getgenv().DynamicBounty_API.UpdateStat("Bounty Per Hour", formattedBPH .. " / hr")
-
-                    
-
-                    if IsScanning then
-                        getgenv().DynamicBounty_API.SetStatus("Scanning Server...", 3)
-                    elseif not currentTarget then
-                        getgenv().DynamicBounty_API.SetStatus("Searching for target...", 3)
-                    else
-                        local distStr = "--"
-                        local hpStr = "--"
-                        if currentTarget.Character and LocalPlayer.Character then
-                            local tHrp = currentTarget.Character:FindFirstChild("HumanoidRootPart")
-                            local tHum = currentTarget.Character:FindFirstChild("Humanoid")
-                            local mHrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                            
-                            if tHrp and mHrp then
-                                distStr = tostring(math.floor((mHrp.Position - tHrp.Position).Magnitude)) .. "m"
-                            end
-                            if tHum and tHum.MaxHealth > 0 then
-                                hpStr = tostring(math.floor((tHum.Health / tHum.MaxHealth) * 100)) .. "%"
-                            end
-                        end
-                        getgenv().DynamicBounty_API.SetStatus("Target: " .. currentTarget.Name .. " | HP: " .. hpStr .. " | Dist: " .. distStr, 3)
-                    end
-                end
-            end)
-        end
-    end)
-
-if getgenv().Config and getgenv().Config["HideUI"] == false then
-        task.delay(1.5, function()
-            if not isOpen then
-                ToggleHologramUI()
-            end
+        local closeTween = TweenService:Create(HoloWindow, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In),
+            {Position = UDim2.new(0.5, 0, 0, 48), GroupTransparency = 1})
+        TweenService:Create(WindowScale, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Scale = 0.65}):Play()
+        closeTween:Play()
+        closeTween.Completed:Connect(function()
+            if not isOpen then HoloWindow.Visible = false end
+            isAnimating = false
         end)
     end
 end
+
+----------------------------------------------------------------
+-- NOTCH CLICKS  (1 = toggle, 2 = skip, 3 = stop)
+----------------------------------------------------------------
+local clickCount, lastClickTime = 0, 0
+NotchClickBtn.MouseButton1Click:Connect(function()
+    TweenService:Create(NotchScale, TweenInfo.new(0.1, Enum.EasingStyle.Sine), {Scale = 0.9}):Play()
+    task.delay(0.1, function()
+        TweenService:Create(NotchScale, TweenInfo.new(0.25, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {Scale = 1}):Play()
+    end)
+
+    local now = tick()
+    if now - lastClickTime > 0.4 then clickCount = 0 end
+    clickCount += 1
+    lastClickTime = now
+
+    task.delay(0.4, function()
+        if clickCount == 1 and tick() - lastClickTime >= 0.4 then
+            ToggleHologramUI(); clickCount = 0
+        elseif clickCount == 2 and tick() - lastClickTime >= 0.4 then
+            pcall(Hub.OnSkip); Hub.Notify("Merciful Hub", "Player Skipped!", 2); clickCount = 0
+        elseif clickCount >= 3 then
+            pcall(Hub.OnStop); Hub.Notify("Merciful Hub", "Script Stopped!", 2); clickCount = 0
+        end
+    end)
+end)
+
+----------------------------------------------------------------
+-- RENDER LOOP (rotating borders, shimmer, scanline, ray pulse)
+----------------------------------------------------------------
+local rot = 0
+table.insert(Hub._conns, RunService.RenderStepped:Connect(function()
+    rot = (rot + 1.5) % 360
+    for _, g in pairs(UI.RotatingGradients) do
+        if g and g.Parent then g.Rotation = rot end
+    end
+    local off = Vector2.new(math.sin(tick() * 2) * 0.4, 0)
+    for _, g in pairs(UI.AnimatedGradients) do if g and g.Parent then g.Offset = off end end
+    for _, g in pairs(UI.RowStrokeGradients) do if g and g.Parent then g.Offset = off end end
+
+    if isOpen and HoloWindow.Visible then
+        Scanline.Position = UDim2.new(0, 0, (tick() * 0.4) % 1, 0)
+        local pulse = (math.sin(tick() * 4) + 1) / 2
+        CenterRay.BackgroundTransparency = 0.8 + pulse * 0.1
+        LeftRay.BackgroundTransparency = 0.85 + pulse * 0.1
+        RightRay.BackgroundTransparency = 0.85 + pulse * 0.1
+    end
+end))
+
+----------------------------------------------------------------
+-- API
+----------------------------------------------------------------
+local API = {
+    Toggle = ToggleHologramUI,
+    SetStatus = SetStatus,
+    UpdateStat = function(key, val)
+        if ValueLabels[key] then ValueLabels[key].Text = tostring(val) end
+    end,
+}
+getgenv().DynamicBounty_API = API
+Hub.API = API
+
+function Hub.Destroy()
+    for _, c in ipairs(Hub._conns) do pcall(function() c:Disconnect() end) end
+    pcall(function() Gui:Destroy() end)
+    getgenv().MainUI = nil
+    getgenv().DynamicBounty_API = nil
+    getgenv().MercifulHub = nil
+end
+getgenv().MercifulHub = Hub
+
+-- auto open like the original (unless Config.HideUI is true)
+if not (getgenv().Config and getgenv().Config["HideUI"] == true) then
+    task.delay(1.5, function() if not isOpen then ToggleHologramUI() end end)
+end
+
+----------------------------------------------------------------
+-- MERCIFUL HUB MAIN-SCRIPT HOOKS
+----------------------------------------------------------------
+local MercifulHubUI = getgenv().MercifulHub
+if MercifulHubUI then
+    MercifulHubUI.OnSkip = function()
+        if currentTarget then
+            Blacklist[currentTarget.Name] = true
+        end
+        pcall(pickNewTarget, "manual skip from Merciful Hub")
+        pcall(notify, "Merciful Hub", "Player Skipped!", 2)
+    end
+
+    MercifulHubUI.OnStop = function()
+        pcall(stopAll)
+        pcall(notify, "Merciful Hub", "Script Stopped!", 2)
+    end
+end
+
+-- Keep the Dynamic Island stats live using the existing bounty/session state.
+task.spawn(function()
+    while task.wait(1) do
+        pcall(function()
+            local api = getgenv().DynamicBounty_API
+            if not api then return end
+
+            local currentBountyVal = getBounty(LocalPlayer) or 0
+            local formattedCurrent = tostring(currentBountyVal):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
+            api.UpdateStat("Current Bounty", formattedCurrent)
+
+            local formattedEarned = tostring(sessionBountyEarned):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
+            api.UpdateStat("Bounty Earned", "+" .. formattedEarned)
+
+            local formattedTotalEarned = tostring(totalBountyEarned):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
+            api.UpdateStat("Total Earned", formattedTotalEarned)
+            api.UpdateStat("Total Kill", tostring(allTimeKills))
+
+            local totalSeconds = totalTimeElapsed + math.floor(os.time() - bsStartTime)
+            local bph = 0
+            if totalSeconds > 0 and totalBountyEarned > 0 then
+                bph = math.floor((totalBountyEarned / totalSeconds) * 3600)
+            end
+            local formattedBPH = tostring(bph):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
+            api.UpdateStat("Bounty Per Hour", formattedBPH .. " / hr")
+
+            if IsScanning then
+                api.SetStatus("Scanning Server...", 3)
+            elseif not currentTarget then
+                api.SetStatus("Searching for target...", 3)
+            else
+                local distStr, hpStr = "--", "--"
+                if currentTarget.Character and LocalPlayer.Character then
+                    local tHrp = currentTarget.Character:FindFirstChild("HumanoidRootPart")
+                    local tHum = currentTarget.Character:FindFirstChild("Humanoid")
+                    local mHrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if tHrp and mHrp then
+                        distStr = tostring(math.floor((mHrp.Position - tHrp.Position).Magnitude)) .. "m"
+                    end
+                    if tHum and tHum.MaxHealth > 0 then
+                        hpStr = tostring(math.floor((tHum.Health / tHum.MaxHealth) * 100)) .. "%"
+                    end
+                end
+                api.SetStatus("Target: " .. currentTarget.Name .. " | HP: " .. hpStr .. " | Dist: " .. distStr, 3)
+            end
+        end)
+    end
+end)
 
 
 
@@ -5875,12 +5538,24 @@ task.spawn(function()
                     lastCheckPos = nil
                     lastMoveTick = 0
 
-                    -- NEVER reset/kill the character as a movement recovery.
-                    -- If the target is on another island, Portal C is the only
-                    -- cross-island recovery method. Otherwise keep the target and
-                    -- let the normal movement loop try again.
-                    if currentTarget and not PortalTravel.Locked then
-                        PortalCToTargetIsland()
+                    if not risk() then
+                        -- Do not reset/kill the character to bypass teleport or recover from a stuck state.
+                        -- Clear the current target and let the normal target/teleport logic recover.
+                        if currentTarget then
+                            Blacklist[currentTarget.Name] = true
+                        end
+                        currentTarget = nil
+                        getgenv().CurrentTarget = nil
+                        getgenv().targ = nil
+                        pickNewTarget("stuck > 2.5s or tracer lost > 1s")
+                    else
+                        if currentTarget then
+                            Blacklist[currentTarget.Name] = true
+                        end
+                        currentTarget = nil
+                        getgenv().CurrentTarget = nil
+                        getgenv().targ = nil
+                        pickNewTarget("stuck > 2.5s or tracer lost > 1s")
                     end
                 end
             else
@@ -5891,3 +5566,4 @@ task.spawn(function()
         end)
     end
 end)
+````
