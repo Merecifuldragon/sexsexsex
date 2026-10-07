@@ -1,4 +1,3 @@
-````
 --[[
     Merciful Hub - Auto Bounty (100% AUTOCONTENIDO)
     ------------------------------------------------------------------
@@ -5566,4 +5565,3 @@ task.spawn(function()
         end)
     end
 end)
-````
