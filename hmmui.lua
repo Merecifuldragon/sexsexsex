@@ -2245,8 +2245,19 @@ end
 end
 
 
-if IsInstaKillEnabled() or (Config and Config["FruitM1"] == true) then
-    M1Fruit()
+-- Safe fruit-M1 bootstrap. A missing helper must never abort Auto Bounty.
+do
+    local enableFruitM1 = false
+    pcall(function()
+        enableFruitM1 = (type(IsInstaKillEnabled) == "function" and IsInstaKillEnabled() == true)
+            or (type(Config) == "table" and Config["FruitM1"] == true)
+    end)
+    if enableFruitM1 and type(M1Fruit) == "function" then
+        task.spawn(function()
+            local ok, err = pcall(M1Fruit)
+            if not ok then warn("[Merciful Hub] Fruit M1 disabled: " .. tostring(err)) end
+        end)
+    end
 end
 
 ---------
@@ -4447,21 +4458,22 @@ spawn(function()
         pcall(function()
             saveEarnedData()
             
-            if not getgenv().Config.BlackScreen then return end
-            local tLbl = getgenv()._BS_TimeLabel
-            local bLbl = getgenv()._BS_BountyLabel
-            local tgLbl = getgenv()._BS_TargetLabel
-            if not tLbl or not bLbl or not tgLbl then return end
-
-            tLbl.Text = "Time Elapsed : " .. formatTime(totalTimeElapsed + math.floor(os.time() - bsStartTime))
-            bLbl.Text = "Bounty Earned : +" .. tostring(sessionBountyEarned) .. "$ | Total: " .. tostring(totalBountyEarned) .. "$"
-
-            if IsScanning then
-                tgLbl.Text = "Target : Scanning..."
-            elseif currentTarget then
-                tgLbl.Text = "Target : " .. currentTarget.Name .. " (" .. tostring(getBounty(currentTarget)) .. "$)"
-            else
-                tgLbl.Text = "Target : Searching..."
+            -- Update the old BlackScreen labels only when that UI is enabled.
+            if getgenv().Config and getgenv().Config.BlackScreen then
+                local tLbl = getgenv()._BS_TimeLabel
+                local bLbl = getgenv()._BS_BountyLabel
+                local tgLbl = getgenv()._BS_TargetLabel
+                if tLbl and bLbl and tgLbl then
+                    tLbl.Text = "Time Elapsed : " .. formatTime(totalTimeElapsed + math.floor(os.time() - bsStartTime))
+                    bLbl.Text = "Bounty Earned : +" .. tostring(sessionBountyEarned) .. "$ | Total: " .. tostring(totalBountyEarned) .. "$"
+                    if IsScanning then
+                        tgLbl.Text = "Target : Scanning..."
+                    elseif currentTarget then
+                        tgLbl.Text = "Target : " .. currentTarget.Name .. " (" .. tostring(getBounty(currentTarget)) .. "$)"
+                    else
+                        tgLbl.Text = "Target : Searching..."
+                    end
+                end
             end
         end)
     end
@@ -4469,80 +4481,116 @@ end)
 
 ---------
 local lastTickBounty = 0
+local pendingBountyTarget = nil
+local pendingBountyAt = 0
+local pendingBountyValue = 0
+local lastObservedTarget = nil
+local lastObservedHealth = nil
+local lastRewardTick = 0
 
-spawn(function()
-    task.wait(1) 
-    pcall(function()
-        lastTickBounty = tonumber(getBounty(game.Players.LocalPlayer)) or 0
+local function getCurrentBountySafe()
+    local ok, value = pcall(function()
+        return tonumber(getBounty(LocalPlayer)) or 0
     end)
-    
+    return ok and value or 0
+end
+
+local function queueBountyReward(targetName)
+    if not targetName or targetName == "" then return end
+    pendingBountyTarget = tostring(targetName)
+    pendingBountyAt = tick()
+    pendingBountyValue = getCurrentBountySafe()
+end
+
+local function recordBountyReward(earnedBounty, targetName, currentBounty)
+    earnedBounty = tonumber(earnedBounty) or 0
+    if earnedBounty <= 0 then return end
+    if tick() - lastRewardTick < 1 then return end
+    lastRewardTick = tick()
+
+    targetName = tostring(targetName or "Unknown")
+    sessionBountyEarned = (tonumber(sessionBountyEarned) or 0) + earnedBounty
+    totalBountyEarned = (tonumber(totalBountyEarned) or 0) + earnedBounty
+    allTimeKills = (tonumber(allTimeKills) or 0) + 1
+
+    local totalSeconds = totalTimeElapsed + math.floor(os.time() - bsStartTime)
+    local currentBPH = 0
+    if totalSeconds > 0 then
+        currentBPH = math.floor((totalBountyEarned / totalSeconds) * 3600)
+    end
+
+    pcall(function() sendKillMessage(earnedBounty, targetName) end)
+    pcall(function() sendKillWebhook(targetName, earnedBounty, currentBounty, totalBountyEarned, allTimeKills, currentBPH) end)
+    pcall(saveEarnedData)
+
+    if getgenv().DynamicBounty_API then
+        pcall(function()
+            getgenv().DynamicBounty_API.SetStatus("Earned " .. tostring(earnedBounty) .. " From " .. targetName, 5)
+            getgenv().DynamicBounty_API.UpdateStat("Bounty Earned", "+" .. tostring(sessionBountyEarned))
+            getgenv().DynamicBounty_API.UpdateStat("Total Earned", tostring(totalBountyEarned))
+            getgenv().DynamicBounty_API.UpdateStat("Total Kill", tostring(allTimeKills))
+            getgenv().DynamicBounty_API.UpdateStat("Bounty Per Hour", tostring(currentBPH) .. " / hr")
+        end)
+    end
+end
+
+-- Robust reward tracker:
+-- 1) watches the local bounty value for a positive delta;
+-- 2) also watches the currently selected target's Humanoid death, so delayed bounty
+--    replication can still be attributed to the correct target.
+task.spawn(function()
+    task.wait(1)
+    lastTickBounty = getCurrentBountySafe()
+
     while task.wait(0.1) do
         pcall(function()
-            local currentBounty = tonumber(getBounty(game.Players.LocalPlayer)) or 0
-            
-            if lastTickBounty > 0 then
-                if currentBounty > lastTickBounty then
-                    local earnedBounty = currentBounty - lastTickBounty
-                    
+            local currentBounty = getCurrentBountySafe()
+            local target = currentTarget
+            local hum = target and target.Character and target.Character:FindFirstChildOfClass("Humanoid")
 
-                    local deadTargetName = "Unknown"
-
-                    pcall(function()
-                        local notifs = game.Players.LocalPlayer.PlayerGui:FindFirstChild("Notifications")
-                        if notifs then
-                            for _, v in ipairs(notifs:GetChildren()) do
-                                local lbl = v:IsA("TextLabel") and v or v:FindFirstChildWhichIsA("TextLabel", true)
-                                if lbl and lbl.Text and lbl.Text ~= "" then
-                                    local txt = lbl.Text
-                                    local matchedName = txt:match("([%w_]+)!")
-                                    if matchedName then
-                                        deadTargetName = matchedName
-                                        break
-                                    end
-                                end
-                            end
-                        end
-                    end)
-
-                    if deadTargetName == "Unknown" and currentTarget and currentTarget.Name then
-                        deadTargetName = currentTarget.Name
-                    end
-                    
-                    task.spawn(function()
-                        sendKillMessage(earnedBounty, deadTargetName)
-                    end)
-
-                    sessionBountyEarned = (tonumber(sessionBountyEarned) or 0) + earnedBounty
-                    totalBountyEarned = (tonumber(totalBountyEarned) or 0) + earnedBounty
-                    allTimeKills = (tonumber(allTimeKills) or 0) + 1
-                    
-                    local totalSeconds = totalTimeElapsed + math.floor(os.time() - bsStartTime)
-                    local currentBPH = 0
-                    if totalSeconds > 0 and totalBountyEarned > 0 then
-                        currentBPH = math.floor((totalBountyEarned / totalSeconds) * 3600)
-                    end
-                    
-                    sendKillWebhook(deadTargetName, earnedBounty, currentBounty, totalBountyEarned, allTimeKills, currentBPH)
-                    saveEarnedData()
-
-                    
-                    if getgenv().DynamicBounty_API then
-                        getgenv().DynamicBounty_API.SetStatus("Earned " .. tostring(earnedBounty) .. " From " .. deadTargetName, 5)
-                    end
-                elseif currentBounty < lastTickBounty then
-                    local lostBounty = lastTickBounty - currentBounty
-                    totalBountyEarned = (tonumber(totalBountyEarned) or 0) - lostBounty
-                    saveEarnedData()
-                end
+            if target ~= lastObservedTarget then
+                lastObservedTarget = target
+                lastObservedHealth = hum and hum.Health or nil
             end
-            
-            if currentBounty > 0 then
+
+            if hum then
+                local hp = hum.Health
+                if lastObservedHealth and lastObservedHealth > 0 and hp <= 0 then
+                    queueBountyReward(target.Name)
+                end
+                lastObservedHealth = hp
+            elseif target and pendingBountyTarget == nil then
+                -- Target character disappeared; this is also a valid death signal.
+                queueBountyReward(target.Name)
+            end
+
+            if currentBounty > lastTickBounty then
+                local earned = currentBounty - lastTickBounty
+                local targetName = pendingBountyTarget
+                    or (lastObservedTarget and lastObservedTarget.Name)
+                    or (currentTarget and currentTarget.Name)
+                    or "Unknown"
+
+                recordBountyReward(earned, targetName, currentBounty)
+                pendingBountyTarget = nil
+                pendingBountyAt = 0
+                pendingBountyValue = 0
+            elseif pendingBountyTarget and tick() - pendingBountyAt > 8 then
+                -- Don't leave a stale death queued forever.
+                pendingBountyTarget = nil
+                pendingBountyAt = 0
+                pendingBountyValue = 0
+            elseif currentBounty < lastTickBounty then
+                -- PvP death/loss can lower bounty; it is not a reward.
+                pcall(saveEarnedData)
+            end
+
+            if currentBounty >= 0 then
                 lastTickBounty = currentBounty
             end
         end)
     end
 end)
-
 
 
 local function IsPvpOn(player)
