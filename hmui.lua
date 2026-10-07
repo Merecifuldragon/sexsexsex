@@ -3560,16 +3560,43 @@ local function pickNewTarget(reason)
 
     currentTarget = getRandomPlayer()
     switchTimer = 0
-    
     lastTargetHealth = 0
-    lastDamageTime = tick() 
-    
+    lastDamageTime = tick()
+
     if currentTarget then
         print(string.format("Target [%s] %s -> %s", reason, old, currentTarget.Name))
+        notify("Auto Bounty", "Target: " .. currentTarget.Name, 2)
     else
+        currentTarget = nil
         print("Waiting for valid targets...")
-        notify("Auto Bounty", "No targets left, hopping server...", 5)
-        hopServer()
+        notify("Auto Bounty", "No valid target found; rescanning...", 3)
+        task.delay(1, function()
+            if running and not currentTarget then
+                local retry = getRandomPlayer()
+                if retry then
+                    currentTarget = retry
+                    lastTargetHealth = 0
+                    lastDamageTime = tick()
+                    notify("Auto Bounty", "Target: " .. retry.Name, 2)
+                else
+                    -- Do not immediately hop: players can take a moment to load/spawn.
+                    task.delay(8, function()
+                        if not running or currentTarget then return end
+                        local found = getRandomPlayer()
+                        if found then
+                            currentTarget = found
+                            switchTimer = 0
+                            lastTargetHealth = 0
+                            lastDamageTime = tick()
+                            notify("Auto Bounty", "Target: " .. found.Name, 2)
+                        else
+                            notify("Auto Bounty", "No valid target after rescan; hopping...", 3)
+                            hopServer()
+                        end
+                    end)
+                end
+            end
+        end)
     end
 end
 
@@ -3637,33 +3664,38 @@ local function RunFullScan()
             local isSameTeam = p.Team == LocalPlayer.Team
 
             if p ~= LocalPlayer and not (isMarine and isSameTeam) then
+                local targetChar = p.Character
+                local targetHum = targetChar and targetChar:FindFirstChild("Humanoid")
+                local targetHrp = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+
                 if Whitelist[p.Name] then
-                    local hum = char and char:FindFirstChild("Humanoid")
-                    if not char or not hum or hum.Health <= 0 then
+                    if not targetChar or not targetHum or targetHum.Health <= 0 then
                         Whitelist[p.Name] = nil
                     end
                     continue
                 end
 
-                if not Whitelist[p.Name] then
-                    if char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
-                        if not isInSafeZone(p) and not isPvPDisabled(p) then
+                if targetChar and targetHum and targetHrp and targetHum.Health > 0 then
+                    if not isInSafeZone(p) and not isPvPDisabled(p) then
                         notify("Scan System", "Checking: " .. p.Name, 1.5)
-                            local hum = char.Humanoid
-                            local startHealth = hum.Health
-                            
-                            for i = 1, 60 do
-                                if not running then break end
-                                teleportTo(p)
-                                task.wait(CONFIG.SkimDelay) 
-                            end
-                            
-                            task.wait(0.01) 
-                            local newHealth = hum.Health
-                            if newHealth < startHealth then
-                                Whitelist[p.Name] = true
-                                notify("Scan System", "Whitelist added: " .. p.Name, 2)
-                            end
+                        local startHealth = targetHum.Health
+
+                        for i = 1, 60 do
+                            if not running then break end
+                            targetChar = p.Character
+                            targetHum = targetChar and targetChar:FindFirstChild("Humanoid")
+                            targetHrp = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+                            if not targetHum or not targetHrp or targetHum.Health <= 0 then break end
+                            teleportTo(p)
+                            task.wait(CONFIG.SkimDelay)
+                        end
+
+                        task.wait(0.01)
+                        targetChar = p.Character
+                        targetHum = targetChar and targetChar:FindFirstChild("Humanoid")
+                        if targetHum and targetHum.Health < startHealth then
+                            Whitelist[p.Name] = true
+                            notify("Scan System", "Whitelist added: " .. p.Name, 2)
                         end
                     end
                 end
@@ -3836,7 +3868,7 @@ local function startRandom()
     stopAll() 
     running = true
 
-    if getgenv().Config.mode == "method1" then
+    if getgenv().Config and getgenv().Config.mode == "method1" then
         pickNewTarget("start")
         local nearStartTime = tick()
         local approachStartTime = tick()
@@ -3972,7 +4004,7 @@ local SKIP_NOTIF_KEYWORDS = {
     "pvp", "chua bat", "cannot attack", "unable to attack",
     "khong the tan cong", "nguoi choi", "player recently",
     "vua tu tran", "protection", "bao ve",
-    "player", "safezone"
+    "safezone"
 }
 
 spawn(function()
@@ -3984,15 +4016,17 @@ spawn(function()
                     local lbl = v:IsA("TextLabel") and v or v:FindFirstChildWhichIsA("TextLabel", true)
                     if lbl and lbl.Text and lbl.Text ~= "" then
                         local text = lbl.Text:lower()
+                        local shouldSkip = false
                         for _, kw in pairs(SKIP_NOTIF_KEYWORDS) do
                             if text:find(kw, 1, true) then
-                                if currentTarget then 
-                                    Blacklist[currentTarget.Name] = true
-                                end
-                                pickNewTarget("notification bypass")
-                                pcall(function() v:Destroy() end)
+                                shouldSkip = true
                                 break
                             end
+                        end
+                        if shouldSkip and currentTarget then
+                            Blacklist[currentTarget.Name] = true
+                            pickNewTarget("notification bypass")
+                            pcall(function() v:Destroy() end)
                         end
                     end
                 end
