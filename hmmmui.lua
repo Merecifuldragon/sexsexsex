@@ -5172,6 +5172,63 @@ local ValueLabels = {
     ["Total Earned"]   = CreateStatRow(ContentScroll, "Total Earned", "0", 5),
 }
 
+-- Kit Insta Kill toggle (kept global to avoid Lua local-register overflow)
+getgenv().MercifulKitInstaKillRow = Instance.new("Frame", ContentScroll)
+getgenv().MercifulKitInstaKillRow.Size = UDim2.new(1, -4, 0, 38)
+getgenv().MercifulKitInstaKillRow.BackgroundColor3 = Theme.ContainerBg
+getgenv().MercifulKitInstaKillRow.BackgroundTransparency = Theme.ContainerTrans
+getgenv().MercifulKitInstaKillRow.LayoutOrder = 6
+getgenv().MercifulKitInstaKillRow.BorderSizePixel = 0
+Instance.new("UICorner", getgenv().MercifulKitInstaKillRow).CornerRadius = UDim.new(0, 6)
+
+getgenv().MercifulKitInstaKillStroke = Instance.new("UIStroke", getgenv().MercifulKitInstaKillRow)
+getgenv().MercifulKitInstaKillStroke.Color = Theme.RowStroke
+getgenv().MercifulKitInstaKillStroke.Thickness = 1.2
+
+getgenv().MercifulKitInstaKillTitle = Instance.new("TextLabel", getgenv().MercifulKitInstaKillRow)
+getgenv().MercifulKitInstaKillTitle.Size = UDim2.new(0.55, -8, 1, 0)
+getgenv().MercifulKitInstaKillTitle.Position = UDim2.new(0, 12, 0, 0)
+getgenv().MercifulKitInstaKillTitle.BackgroundTransparency = 1
+getgenv().MercifulKitInstaKillTitle.Font = Enum.Font.GothamBold
+getgenv().MercifulKitInstaKillTitle.Text = "Kit Insta Kill"
+getgenv().MercifulKitInstaKillTitle.TextSize = 11
+getgenv().MercifulKitInstaKillTitle.TextXAlignment = Enum.TextXAlignment.Left
+ApplyTextGradient(getgenv().MercifulKitInstaKillTitle)
+
+getgenv().MercifulKitInstaKillButton = Instance.new("TextButton", getgenv().MercifulKitInstaKillRow)
+getgenv().MercifulKitInstaKillButton.Size = UDim2.new(0, 78, 0, 24)
+getgenv().MercifulKitInstaKillButton.Position = UDim2.new(1, -88, 0.5, 0)
+getgenv().MercifulKitInstaKillButton.AnchorPoint = Vector2.new(0, 0.5)
+getgenv().MercifulKitInstaKillButton.BorderSizePixel = 0
+getgenv().MercifulKitInstaKillButton.Font = Enum.Font.GothamBold
+getgenv().MercifulKitInstaKillButton.TextSize = 10
+getgenv().MercifulKitInstaKillButton.AutoButtonColor = true
+Instance.new("UICorner", getgenv().MercifulKitInstaKillButton).CornerRadius = UDim.new(0, 7)
+
+getgenv().SetKitInstaKill = function(enabled)
+    Config.InstaKill = enabled == true
+    if getgenv().Config then
+        getgenv().Config.InstaKill = Config.InstaKill
+        getgenv().Config.KitInstaKill = Config.InstaKill
+        getgenv().Config.FruitM1 = Config.InstaKill
+    end
+end
+
+getgenv().RefreshKitInstaKill = function()
+    local enabled = Config.InstaKill == true
+    getgenv().MercifulKitInstaKillButton.Text = enabled and "ENABLED" or "DISABLED"
+    getgenv().MercifulKitInstaKillButton.BackgroundColor3 = enabled and Color3.fromRGB(70, 120, 85) or Color3.fromRGB(55, 55, 55)
+    getgenv().MercifulKitInstaKillButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+end
+
+getgenv().SetKitInstaKill(Config.InstaKill == true)
+getgenv().RefreshKitInstaKill()
+getgenv().MercifulKitInstaKillButton.MouseButton1Click:Connect(function()
+    getgenv().SetKitInstaKill(not (Config.InstaKill == true))
+    getgenv().RefreshKitInstaKill()
+    pcall(function() notify("Merciful Hub", "Kit Insta Kill: " .. (Config.InstaKill and "ON" or "OFF"), 2) end)
+end)
+
 ----------------------------------------------------------------
 -- OPEN / CLOSE ANIMATION
 ----------------------------------------------------------------
