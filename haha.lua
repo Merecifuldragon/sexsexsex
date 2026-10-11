@@ -1745,8 +1745,23 @@ local function isFruitTool(tool)
     return tool:IsA("Tool") and (tool.ToolTip == "Blox Fruit" or tool:GetAttribute("WeaponType") == "Demon Fruit")
 end
 
--- Returns the fruit tool. If it is only in the Backpack, equips it
--- after a random 3-5s delay (from the first script) and returns nil meanwhile.
+-- True if any weapon type has skills enabled in the config (the main skill
+-- loop then manages equipping/switching weapons by itself)
+local function skillsDriveEquip()
+    for _, typeData in pairs(cfgNow()) do
+        if type(typeData) == "table" and typeData.Enable then
+            for _, skillData in pairs(typeData) do
+                if type(skillData) == "table" and skillData.Enable and skillData.Priority then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- Returns the fruit tool (held, else from the Backpack). If it is only in the
+-- Backpack and no skills are configured, equips it after a random 3-5s delay.
 function FruitM1.GetFruit()
     local char = LocalPlayer.Character
     if not char then return nil end
@@ -1756,27 +1771,38 @@ function FruitM1.GetFruit()
         end
     end
 
-    if IsM1Enabled() and not isEquipping then
+    -- Not in hand: use the Backpack fruit (same as the original script, so
+    -- M1 keeps firing while the skill loop swaps weapons)
+    local backpackFruit
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, tool in pairs(backpack:GetChildren()) do
+            if isFruitTool(tool) then
+                backpackFruit = tool
+                break
+            end
+        end
+    end
+
+    -- Delayed 3-5s auto-equip, only when no skills are configured. If skills
+    -- are enabled, the skill loop already handles weapon switching and this
+    -- would fight it.
+    if backpackFruit and IsM1Enabled() and not isEquipping and not skillsDriveEquip() then
         isEquipping = true
         task.spawn(function()
             task.wait(math.random(3, 5))
             if IsM1Enabled() then
-                local backpack = LocalPlayer:FindFirstChild("Backpack")
                 local c = LocalPlayer.Character
                 local hum = c and c:FindFirstChildOfClass("Humanoid")
-                if backpack and hum then
-                    for _, tool in pairs(backpack:GetChildren()) do
-                        if isFruitTool(tool) then
-                            hum:EquipTool(tool)
-                            break
-                        end
-                    end
+                if hum and backpackFruit.Parent == LocalPlayer:FindFirstChild("Backpack") then
+                    hum:EquipTool(backpackFruit)
                 end
             end
             isEquipping = false
         end)
     end
-    return nil
+
+    return backpackFruit
 end
 
 function FruitM1.GetInterval(tool)
@@ -3738,13 +3764,97 @@ local function checkCurrentTarget()
     return true
 end
 
+-- ==================== Scan Ascent (stay safe while scanning) ====================
+-- While the server scan runs, fly straight up (X/Z fixed) at the TweenSpeed
+-- from the config, so the character never walks out of the safe zone and dies.
+-- Optional config key: ["ScanHeight"] = 2000 (studs above the start point).
+local ScanAscent = { active = false }
+
+local function StopScanAscent()
+    ScanAscent.active = false
+    if ScanAscent.conn then
+        pcall(function() ScanAscent.conn:Disconnect() end)
+        ScanAscent.conn = nil
+    end
+    for _, key in ipairs({"align", "rootAtt", "targetAtt", "gyro"}) do
+        local obj = ScanAscent[key]
+        if obj then
+            pcall(function() obj:Destroy() end)
+            ScanAscent[key] = nil
+        end
+    end
+end
+
+local function StartScanAscent()
+    StopScanAscent()
+
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChild("Humanoid")
+    if not hrp or not hum then return end
+
+    local cfgNow = getgenv().Config or {}
+    local height = tonumber(cfgNow["ScanHeight"]) or 2000
+    local startPos = hrp.Position
+    local goalPos = Vector3.new(startPos.X, startPos.Y + height, startPos.Z)
+
+    hum.PlatformStand = true
+
+    ScanAscent.targetAtt = Instance.new("Attachment")
+    ScanAscent.targetAtt.Name = "MeyyScanTargetAtt"
+    ScanAscent.targetAtt.WorldPosition = goalPos
+    ScanAscent.targetAtt.Parent = workspace.Terrain
+
+    ScanAscent.rootAtt = Instance.new("Attachment")
+    ScanAscent.rootAtt.Name = "MeyyScanRootAtt"
+    ScanAscent.rootAtt.Parent = hrp
+
+    ScanAscent.align = Instance.new("AlignPosition")
+    ScanAscent.align.Name = "MeyyScanAlign"
+    ScanAscent.align.Mode = Enum.PositionAlignmentMode.TwoAttachment
+    ScanAscent.align.Attachment0 = ScanAscent.rootAtt
+    ScanAscent.align.Attachment1 = ScanAscent.targetAtt
+    ScanAscent.align.MaxForce = 9e99
+    ScanAscent.align.MaxVelocity = tonumber(cfgNow["TweenSpeed"]) or 250
+    ScanAscent.align.Responsiveness = 200
+    ScanAscent.align.ApplyAtCenterOfMass = true
+    ScanAscent.align.Parent = hrp
+
+    ScanAscent.gyro = Instance.new("BodyGyro")
+    ScanAscent.gyro.Name = "MeyyScanGyro"
+    ScanAscent.gyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    ScanAscent.gyro.P = 50000
+    ScanAscent.gyro.D = 500
+    ScanAscent.gyro.CFrame = hrp.CFrame
+    ScanAscent.gyro.Parent = hrp
+
+    ScanAscent.active = true
+
+    ScanAscent.conn = RunService.Heartbeat:Connect(function()
+        local c = LocalPlayer.Character
+        local h = c and c:FindFirstChild("HumanoidRootPart")
+        local hm = c and c:FindFirstChild("Humanoid")
+        -- stop if we died / respawned, or the low-HP sky hop took over
+        if not ScanAscent.active or not h or h ~= hrp or not hm or hm.Health <= 0 or _G.IsSkyHopping then
+            StopScanAscent()
+            return
+        end
+
+        hm.PlatformStand = true -- keeps the random-walk from moving us sideways
+        local live = getgenv().Config or {}
+        ScanAscent.align.MaxVelocity = tonumber(live["TweenSpeed"]) or 250 -- same speed as the config
+        h.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
 local function RunFullScan()
     if ScanCompleted or IsScanning then return end
     IsScanning = true
     notify("Scan System", "Starting 5-cycle skimming scan...", 7)
+    StartScanAscent()
 
     for cycle = 1, 7 do
-        if not running then IsScanning = false return end
+        if not running then IsScanning = false StopScanAscent() return end
         notify("Scan System", "Cycle: " .. cycle .. "/7", 2)
         
         for _, p in pairs(Players:GetPlayers()) do
@@ -3790,6 +3900,7 @@ local function RunFullScan()
 
 
 
+    StopScanAscent()
     IsScanning = false
     ScanCompleted = true
     notify("Scan System", "Scan finished! Ready to hunt.", 7)
@@ -3806,6 +3917,7 @@ end
 local function stopAll()
     running = false
     IsScanning = false
+    StopScanAscent()
     if followThread then
         task.cancel(followThread)
         followThread = nil
